@@ -10,7 +10,9 @@ type Provider struct {
 }
 
 func NewProvider(OnLoaded func(provider *Provider)) (*Provider, error) {
-	provider := &Provider{}
+	provider := &Provider{
+		OnLoaded: OnLoaded,
+	}
 	err := provider.OnInit()
 	if err != nil {
 		return nil, err

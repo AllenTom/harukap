@@ -55,8 +55,7 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 			logger.Fatal(err.Error())
 		}
 
-		heartbeatTimeoutCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-		err = p.Entity.StartHeartbeat(heartbeatTimeoutCtx)
+		err = p.Entity.StartHeartbeat(context.Background())
 		if err != nil {
 			return err
 		}

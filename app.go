@@ -5,6 +5,7 @@ import (
 	"github.com/allentom/harukap/config"
 	"github.com/allentom/harukap/rpc"
 	"github.com/allentom/harukap/youlog"
+	youlog2 "github.com/project-xpolaris/youplustoolkit/youlog"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"log"
@@ -48,6 +49,10 @@ func (e *HarukaAppEngine) Run() {
 		}
 	}
 	bootLogger := e.LoggerPlugin.Logger.NewScope("booting")
+	bootLogger.WithFields(youlog2.Fields{
+		"Application": e.LoggerPlugin.Logger.Application,
+		"Instance":    e.LoggerPlugin.Logger.Instance,
+	}).Info("init logger success")
 	bootLogger.Info("init plugins")
 	for _, plugin := range e.Plugins {
 		err := plugin.OnInit(e)

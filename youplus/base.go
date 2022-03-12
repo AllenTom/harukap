@@ -8,8 +8,6 @@ import (
 	"github.com/project-xpolaris/youplustoolkit/youplus"
 	entry "github.com/project-xpolaris/youplustoolkit/youplus/entity"
 	youplustoolkitrpc "github.com/project-xpolaris/youplustoolkit/youplus/rpc"
-
-	"time"
 )
 
 type Plugin struct {
@@ -24,8 +22,7 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	logger.Info("init plugin")
 	rpcAddr := e.ConfigProvider.Manager.GetString("youplus.rpc")
 	p.RPCClient = youplustoolkitrpc.NewYouPlusRPCClient(rpcAddr)
-	timeoutCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	err := p.RPCClient.Connect(timeoutCtx)
+	err := p.RPCClient.Init()
 	if err != nil {
 		return err
 	}

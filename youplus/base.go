@@ -24,6 +24,10 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	if enableRPC {
 		rpcAddr := e.ConfigProvider.Manager.GetString("youplus.rpc")
 		p.RPCClient = youplustoolkitrpc.NewYouPlusRPCClient(rpcAddr)
+		err := p.RPCClient.Init()
+		if err != nil {
+			return err
+		}
 		// entity
 		enableEntity := e.ConfigProvider.Manager.GetBool("youplus.entity.enable")
 		if enableEntity {

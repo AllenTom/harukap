@@ -16,7 +16,7 @@ type ThumbnailServicePlugin struct {
 func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	logger := e.LoggerPlugin.Logger.NewScope("ThumbnailPlugin")
 	logger.Info("Init ThumbnailPlugin")
-	p.Client = NewThumbnailClient(e.ConfigProvider.Manager.GetString("thumbnail_url"))
+	p.Client = NewThumbnailClient(e.ConfigProvider.Manager.GetString("thumbnails.service_url"))
 	err := p.Client.Check()
 	if err != nil {
 		return err

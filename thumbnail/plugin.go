@@ -4,19 +4,42 @@ import (
 	"fmt"
 	"github.com/allentom/harukap"
 	"github.com/go-resty/resty/v2"
+	"github.com/project-xpolaris/youplustoolkit/youlog"
 	"io/ioutil"
 )
 
 var DefaultThumbnailServicePlugin = &ThumbnailServicePlugin{}
 
+type ThumbnailServiceConfig struct {
+	Enable     bool
+	ServiceUrl string
+}
 type ThumbnailServicePlugin struct {
 	Client *ThumbnailClient
+	config *ThumbnailServiceConfig
+	Logger *youlog.Scope
 }
 
+func (p *ThumbnailServicePlugin) SetConfig(config *ThumbnailServiceConfig) {
+	p.config = config
+}
 func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	logger := e.LoggerPlugin.Logger.NewScope("ThumbnailPlugin")
+	p.Logger = logger
 	logger.Info("Init ThumbnailPlugin")
-	p.Client = NewThumbnailClient(e.ConfigProvider.Manager.GetString("thumbnails.service_url"))
+	if p.config == nil {
+		logger.Info("Init ThumbnailPlugin with default config")
+		p.config = &ThumbnailServiceConfig{
+			ServiceUrl: e.ConfigProvider.Manager.GetString("thumbnails.service_url"),
+			Enable:     e.ConfigProvider.Manager.GetBool("thumbnails.enable"),
+		}
+	}
+	if !p.config.Enable {
+		logger.Info("ThumbnailPlugin is disabled")
+		return nil
+	}
+	logger.Info(fmt.Sprintf("connect to %s", p.config.ServiceUrl))
+	p.Client = NewThumbnailClient(p.config.ServiceUrl)
 	err := p.Client.Check()
 	if err != nil {
 		return err

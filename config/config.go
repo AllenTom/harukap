@@ -2,16 +2,19 @@ package config
 
 import (
 	"github.com/spf13/viper"
+	"path/filepath"
 )
 
 type Provider struct {
-	Manager  *viper.Viper
-	OnLoaded func(provider *Provider)
+	Manager    *viper.Viper
+	OnLoaded   func(provider *Provider)
+	ConfigPath string
 }
 
-func NewProvider(OnLoaded func(provider *Provider)) (*Provider, error) {
+func NewProvider(OnLoaded func(provider *Provider), ConfigPath string) (*Provider, error) {
 	provider := &Provider{
-		OnLoaded: OnLoaded,
+		OnLoaded:   OnLoaded,
+		ConfigPath: ConfigPath,
 	}
 	err := provider.OnInit()
 	if err != nil {
@@ -22,10 +25,15 @@ func NewProvider(OnLoaded func(provider *Provider)) (*Provider, error) {
 
 func (p *Provider) OnInit() error {
 	p.Manager = viper.New()
-	p.Manager.AddConfigPath("./")
-	p.Manager.AddConfigPath("../")
+	if p.ConfigPath != "" {
+		p.Manager.AddConfigPath(filepath.Dir(p.ConfigPath))
+		p.Manager.SetConfigName(filepath.Base(p.ConfigPath))
+	} else {
+		p.Manager.AddConfigPath("./")
+		p.Manager.AddConfigPath("../")
+		p.Manager.SetConfigName("config")
+	}
 	p.Manager.SetConfigType("yaml")
-	p.Manager.SetConfigName("config")
 	err := p.Manager.ReadInConfig()
 	if err != nil {
 		return err

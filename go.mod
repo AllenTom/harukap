@@ -8,7 +8,7 @@ require (
 	github.com/kardianos/service v1.2.0
 	github.com/magiconair/properties v1.8.6 // indirect
 	github.com/mitchellh/mapstructure v1.4.3
-	github.com/project-xpolaris/youplustoolkit v0.0.0-20220331070824-5fea7ce00ba0
+	github.com/project-xpolaris/youplustoolkit v0.0.0-20220331083706-51df568cbf83
 	github.com/rs/cors v1.8.2 // indirect
 	github.com/rs/xid v1.3.0
 	github.com/sirupsen/logrus v1.8.1

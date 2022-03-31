@@ -1,3 +1,4 @@
 .idea/
 
 local_*_test.go
+reg.yml

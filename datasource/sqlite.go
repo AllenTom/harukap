@@ -9,7 +9,7 @@ import (
 type Sqlite struct {
 }
 
-func (s *Sqlite) OnGetDialector(config *viper.Viper) (gorm.Dialector, error) {
-	path := config.GetString("sqlite.path")
+func (s *Sqlite) OnGetDialector(config *viper.Viper, prefix string) (gorm.Dialector, error) {
+	path := config.GetString(prefix + ".path")
 	return sqlite.Open(path), nil
 }

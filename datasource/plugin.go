@@ -16,10 +16,13 @@ type Plugin struct {
 }
 
 func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
+	initLogger := e.LoggerPlugin.Logger.NewScope("DatasourcePlugin")
+	initLogger.Info("init datasource plugin")
 	configure := e.ConfigProvider.Manager
 	dataSourceList := configure.GetStringMap("datasource")
 	p.DBS = make(map[string]*gorm.DB)
 	for source := range dataSourceList {
+		initLogger.Info("init datasource", "source = ", source)
 		prefix := fmt.Sprintf("datasource.%s", source)
 		datasourceType := configure.GetString(fmt.Sprintf("%s.type", prefix))
 		var dbSource Datasource
@@ -28,7 +31,7 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		} else if datasourceType == "mysql" {
 			dbSource = &Mysql{}
 		} else {
-			return errors.New("unknown datasource type")
+			return errors.New(fmt.Sprintf("unknown datasource type = %s", datasourceType))
 		}
 		dia, err := dbSource.OnGetDialector(e.ConfigProvider.Manager, prefix)
 		if err != nil {

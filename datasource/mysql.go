@@ -14,7 +14,7 @@ func (s *Mysql) OnGetDialector(config *viper.Viper, prefix string) (gorm.Dialect
 	username := config.GetString(prefix + ".username")
 	password := config.GetString(prefix + ".password")
 	host := config.GetString(prefix + ".host")
-	port := config.GetString(prefix + ".po9rt")
+	port := config.GetString(prefix + ".port")
 	database := config.GetString(prefix + ".database")
 	connectString := fmt.Sprintf("%s:%s@(%s:%s)/%s?charset=utf8&parseTime=True&loc=Local",
 		username,

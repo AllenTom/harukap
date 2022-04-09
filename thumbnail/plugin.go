@@ -85,7 +85,26 @@ func (c *ThumbnailClient) Generate(sourcePath string, output string, option Thum
 	}
 	return err
 }
+func (c *ThumbnailClient) Resize(sourcePath string, option ThumbnailOption) ([]byte, error) {
+	req := resty.New().R().
+		SetFile("file", sourcePath)
+	if option.MaxWidth != 0 {
+		req.SetQueryParam("maxWidth", fmt.Sprintf("%d", option.MaxWidth))
+	}
+	if option.MaxHeight != 0 {
+		req.SetQueryParam("maxHeight", fmt.Sprintf("%d", option.MaxHeight))
+	}
+	if option.Mode != "" {
+		req.SetQueryParam("mode", option.Mode)
+	}
+	response, err := req.Post(c.BaseUrl + "/generator")
 
+	thumbnailContent := response.Body()
+	if err != nil {
+		return nil, err
+	}
+	return thumbnailContent, nil
+}
 func (c *ThumbnailClient) Check() error {
 	_, err := resty.New().R().Get(c.BaseUrl + "/info")
 	if err != nil {

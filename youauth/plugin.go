@@ -9,14 +9,24 @@ import (
 )
 
 type OauthPlugin struct {
-	Client *YouAuthClient
+	Client       *YouAuthClient
+	ConfigPrefix string
 }
 
+func (p *OauthPlugin) getConfig(name string) string {
+	if p.ConfigPrefix == "" {
+		return name
+	}
+	return p.ConfigPrefix + "." + name
+}
 func (p *OauthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
+	if p.ConfigPrefix == "" {
+		p.ConfigPrefix = "auth"
+	}
 	p.Client = &YouAuthClient{}
-	p.Client.BaseUrl = e.ConfigProvider.Manager.GetString("auth.url")
-	p.Client.AppId = e.ConfigProvider.Manager.GetString("auth.appid")
-	p.Client.Secret = e.ConfigProvider.Manager.GetString("auth.secret")
+	p.Client.BaseUrl = e.ConfigProvider.Manager.GetString(p.getConfig("url"))
+	p.Client.AppId = e.ConfigProvider.Manager.GetString(p.getConfig("appid"))
+	p.Client.Secret = e.ConfigProvider.Manager.GetString(p.getConfig("secret"))
 	p.Client.Init()
 	return nil
 }

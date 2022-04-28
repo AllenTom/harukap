@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/allentom/harukap"
+	"github.com/allentom/harukap/commons"
 	util "github.com/allentom/harukap/utils"
 	"github.com/project-xpolaris/youplustoolkit/youplus"
 	entry "github.com/project-xpolaris/youplustoolkit/youplus/entity"
@@ -62,4 +63,12 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	p.Client = youplus.NewClient()
 	p.Client.Init(e.ConfigProvider.Manager.GetString("youplus.url"))
 	return nil
+}
+func (p *Plugin) GetAuthInfo(url string) (*commons.AuthInfo, error) {
+	authInfo := &commons.AuthInfo{
+		Type: commons.AuthTypeBase,
+		Name: "YouPlus",
+		Url:  url,
+	}
+	return authInfo, nil
 }

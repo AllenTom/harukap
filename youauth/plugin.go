@@ -3,6 +3,7 @@ package youauth
 import (
 	"github.com/allentom/haruka"
 	"github.com/allentom/harukap"
+	"github.com/allentom/harukap/commons"
 	"github.com/project-xpolaris/youplustoolkit/youlink"
 	"net/http"
 	"net/url"
@@ -30,6 +31,18 @@ func (p *OauthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	p.Client.Init()
 	return nil
 }
+func (p *OauthPlugin) GetAuthInfo() (*commons.AuthInfo, error) {
+	authUrl, err := p.GetOauthUrl()
+	if err != nil {
+		return nil, err
+	}
+	authInfo := &commons.AuthInfo{
+		Name: "YouAuth",
+		Type: commons.AuthTypeWebOauth,
+		Url:  authUrl,
+	}
+	return authInfo, nil
+}
 
 func (p *OauthPlugin) GetOauthUrl() (string, error) {
 	oauthUrl, err := url.Parse(p.Client.BaseUrl)
@@ -38,7 +51,7 @@ func (p *OauthPlugin) GetOauthUrl() (string, error) {
 	}
 	oauthUrl.Path = "/login"
 	q := oauthUrl.Query()
-	q.Set("appid", p.Client.AppId)
+	q.Add("appid", p.Client.AppId)
 	oauthUrl.RawQuery = q.Encode()
 	return oauthUrl.String(), nil
 }

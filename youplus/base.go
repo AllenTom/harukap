@@ -12,9 +12,11 @@ import (
 )
 
 type Plugin struct {
-	RPCClient *youplustoolkitrpc.YouPlusRPCClient
-	Client    *youplus.Client
-	Entity    *entry.EntityClient
+	RPCClient     *youplustoolkitrpc.YouPlusRPCClient
+	Client        *youplus.Client
+	Entity        *entry.EntityClient
+	AuthUrl       string
+	AuthFromToken func(token string) (commons.AuthUser, error)
 }
 
 func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
@@ -64,11 +66,25 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	p.Client.Init(e.ConfigProvider.Manager.GetString("youplus.url"))
 	return nil
 }
-func (p *Plugin) GetAuthInfo(url string) (*commons.AuthInfo, error) {
+func (p *Plugin) GetAuthInfo() (*commons.AuthInfo, error) {
 	authInfo := &commons.AuthInfo{
 		Type: commons.AuthTypeBase,
 		Name: "YouPlus",
-		Url:  url,
+		Url:  p.AuthUrl,
 	}
 	return authInfo, nil
+}
+
+func (p *Plugin) AuthName() string {
+	return "youplus"
+}
+
+func (p *Plugin) TokenTypeName() string {
+	return "YouPlusService"
+}
+func (p *Plugin) GetAuthUserByToken(token string) (commons.AuthUser, error) {
+	if p.AuthFromToken == nil {
+		return nil, nil
+	}
+	return p.AuthFromToken(token)
 }

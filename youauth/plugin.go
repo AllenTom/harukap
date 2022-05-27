@@ -10,8 +10,9 @@ import (
 )
 
 type OauthPlugin struct {
-	Client       *YouAuthClient
-	ConfigPrefix string
+	Client        *YouAuthClient
+	ConfigPrefix  string
+	AuthFromToken func(token string) (commons.AuthUser, error)
 }
 
 func (p *OauthPlugin) getConfig(name string) string {
@@ -72,4 +73,16 @@ func (p *OauthPlugin) GetOauthHandler(onAuth func(code string) (accessToken stri
 			},
 		})
 	}
+}
+func (p *OauthPlugin) AuthName() string {
+	return "youauth"
+}
+func (p *OauthPlugin) TokenTypeName() string {
+	return "youauth"
+}
+func (p *OauthPlugin) GetAuthUserByToken(token string) (commons.AuthUser, error) {
+	if p.AuthFromToken == nil {
+		return nil, nil
+	}
+	return p.AuthFromToken(token)
 }

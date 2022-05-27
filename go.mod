@@ -3,7 +3,7 @@ module github.com/allentom/harukap
 go 1.16
 
 require (
-	github.com/allentom/haruka v0.0.0-20211105095347-07d9bf2b815d
+	github.com/allentom/haruka v0.0.0-20220527084807-cad00e6ff194
 	github.com/go-resty/resty/v2 v2.7.0
 	github.com/kardianos/service v1.2.0
 	github.com/magiconair/properties v1.8.6 // indirect
@@ -20,7 +20,7 @@ require (
 	go.opentelemetry.io/otel/exporters/jaeger v1.1.0
 	go.opentelemetry.io/otel/sdk v1.1.0
 	go.opentelemetry.io/otel/trace v1.1.0
-	golang.org/x/sys v0.0.0-20220318055525-2edf467146b5 // indirect
+	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
 	google.golang.org/genproto v0.0.0-20220317150908-0efb43f6373e // indirect
 	google.golang.org/grpc v1.45.0
 	gopkg.in/ini.v1 v1.66.4 // indirect

@@ -14,3 +14,6 @@ type AuthInfo struct {
 	Type string `json:"type"`
 	Url  string `json:"url"`
 }
+
+type AuthUser interface {
+}

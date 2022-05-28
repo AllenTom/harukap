@@ -21,7 +21,6 @@ func (m AuthMiddleware) OnRequest(c *haruka.Context) {
 	}
 	claim, err := m.Module.ParseToken(jwtToken)
 	if err != nil {
-		c.Interrupt()
 		m.OnError(c, err)
 		return
 	}

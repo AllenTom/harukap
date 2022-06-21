@@ -5,15 +5,14 @@ import (
 )
 
 type AuthMiddleware struct {
-	OnError func(c *haruka.Context, err error)
-	Module  *AuthModule
+	OnError       func(c *haruka.Context, err error)
+	Module        *AuthModule
+	RequestFilter func(c *haruka.Context) bool
 }
 
 func (m AuthMiddleware) OnRequest(c *haruka.Context) {
-	for _, path := range m.Module.NoAuthPath {
-		if c.Request.URL.Path == path {
-			return
-		}
+	if m.RequestFilter != nil && !m.RequestFilter(c) {
+		return
 	}
 	jwtToken := m.Module.ParseAuthHeader(c)
 	if m.Module.Config.EnableAnonymous && len(jwtToken) == 0 {

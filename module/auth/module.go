@@ -14,22 +14,18 @@ type AuthModule struct {
 	Plugins        []harukap.AuthPlugin
 	AuthMiddleware AuthMiddleware
 	ConfigProvider *config.Provider
-	NoAuthPath     []string
 	Config         AuthModuleConfig
 }
 
 func (m *AuthModule) InitModule() {
 	authConfig := AuthModuleConfig{}
 	configer := m.ConfigProvider.Manager
-	for key, _ := range configer.GetStringMap("auth") {
+	for key := range configer.GetStringMap("auth") {
 		configType := configer.GetString(fmt.Sprintf("auth.%s.type", key))
 		enable := configer.GetBool(fmt.Sprintf("auth.%s.enable", key))
 		if configType == "anonymous" && enable {
 			authConfig.EnableAnonymous = true
 		}
-	}
-	if m.NoAuthPath == nil {
-		m.NoAuthPath = []string{}
 	}
 	m.Config = authConfig
 	m.AuthMiddleware = AuthMiddleware{

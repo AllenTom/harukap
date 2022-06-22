@@ -3,8 +3,8 @@ package harukap
 import (
 	"github.com/allentom/haruka"
 	"github.com/allentom/harukap/config"
+	"github.com/allentom/harukap/plugins/youlog"
 	"github.com/allentom/harukap/rpc"
-	"github.com/allentom/harukap/youlog"
 	youlog2 "github.com/project-xpolaris/youplustoolkit/youlog"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"

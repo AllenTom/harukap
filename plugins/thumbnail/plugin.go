@@ -5,6 +5,7 @@ import (
 	"github.com/allentom/harukap"
 	"github.com/go-resty/resty/v2"
 	"github.com/project-xpolaris/youplustoolkit/youlog"
+	"io"
 	"io/ioutil"
 )
 
@@ -77,13 +78,34 @@ func (c *ThumbnailClient) Generate(sourcePath string, output string, option Thum
 		req.SetQueryParam("mode", option.Mode)
 	}
 	response, err := req.Post(c.BaseUrl + "/generator")
-
+	if err != nil {
+		return err
+	}
 	thumbnailContent := response.Body()
 	err = ioutil.WriteFile(output, thumbnailContent, 0644)
 	if err != nil {
 		return err
 	}
 	return err
+}
+func (c *ThumbnailClient) GenerateAsRaw(sourcePath string, output string, option ThumbnailOption) (io.ReadCloser, error) {
+	req := resty.New().R().
+		SetFile("file", sourcePath)
+	if option.MaxWidth != 0 {
+		req.SetQueryParam("maxWidth", fmt.Sprintf("%d", option.MaxWidth))
+	}
+	if option.MaxHeight != 0 {
+		req.SetQueryParam("maxHeight", fmt.Sprintf("%d", option.MaxHeight))
+	}
+	if option.Mode != "" {
+		req.SetQueryParam("mode", option.Mode)
+	}
+	response, err := req.Post(c.BaseUrl + "/generator")
+	if err != nil {
+		return nil, err
+	}
+	thumbnailContent := response.RawBody()
+	return thumbnailContent, nil
 }
 func (c *ThumbnailClient) Resize(sourcePath string, option ThumbnailOption) ([]byte, error) {
 	req := resty.New().R().

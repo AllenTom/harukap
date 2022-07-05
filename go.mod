@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/ahmetb/go-linq/v3 v3.2.0
 	github.com/allentom/haruka v0.0.0-20220527084807-cad00e6ff194
+	github.com/aws/aws-sdk-go v1.44.47 // indirect
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/go-resty/resty/v2 v2.7.0
 	github.com/gorilla/websocket v1.4.2
@@ -32,3 +33,4 @@ require (
 	gorm.io/driver/sqlite v1.2.3
 	gorm.io/gorm v1.22.0
 )
+

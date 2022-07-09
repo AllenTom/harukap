@@ -1,12 +1,15 @@
 package thumbnail
 
 import (
+	"context"
 	"fmt"
 	"github.com/allentom/harukap"
 	"github.com/go-resty/resty/v2"
 	"github.com/project-xpolaris/youplustoolkit/youlog"
+	"image"
 	"io"
 	"io/ioutil"
+	"mime"
 )
 
 var DefaultThumbnailServicePlugin = &ThumbnailServicePlugin{}
@@ -15,10 +18,16 @@ type ThumbnailServiceConfig struct {
 	Enable     bool
 	ServiceUrl string
 }
+
 type ThumbnailServicePlugin struct {
 	Client *ThumbnailClient
 	config *ThumbnailServiceConfig
 	Logger *youlog.Scope
+	Prefix string
+}
+
+func (p *ThumbnailServicePlugin) Resize(ctx context.Context, input io.ReadCloser, option ThumbnailOption) (io.ReadCloser, error) {
+	return p.Client.ResizeWithByte(ctx, input, option)
 }
 
 func (p *ThumbnailServicePlugin) SetConfig(config *ThumbnailServiceConfig) {
@@ -30,9 +39,13 @@ func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	logger.Info("Init ThumbnailPlugin")
 	if p.config == nil {
 		logger.Info("Init ThumbnailPlugin with default config")
+		prefix := "thumbnails."
+		if p.Prefix != "" {
+			prefix = p.Prefix + "."
+		}
 		p.config = &ThumbnailServiceConfig{
-			ServiceUrl: e.ConfigProvider.Manager.GetString("thumbnails.service_url"),
-			Enable:     e.ConfigProvider.Manager.GetBool("thumbnails.enable"),
+			ServiceUrl: e.ConfigProvider.Manager.GetString(fmt.Sprintf("%s.url", prefix)),
+			Enable:     e.ConfigProvider.Manager.GetBool(fmt.Sprintf("%s.enable", prefix)),
 		}
 	}
 	if !p.config.Enable {
@@ -59,12 +72,55 @@ func NewThumbnailClient(baseUrl string) *ThumbnailClient {
 	}
 }
 
-type ThumbnailOption struct {
-	MaxWidth  int    `hsource:"query" hname:"maxWidth"`
-	MaxHeight int    `hsource:"query" hname:"maxHeight"`
-	Mode      string `hsource:"query" hname:"mode"`
-}
+func (c *ThumbnailClient) ResizeWithByte(ctx context.Context, input io.ReadCloser, option ThumbnailOption) (io.ReadCloser, error) {
+	_, format, err := image.DecodeConfig(input)
+	if err != nil {
+		return nil, err
+	}
+	filename := "file" + mime.TypeByExtension("."+format)
 
+	req := resty.New().R().
+		SetFileReader("file", filename, input).
+		SetContext(ctx)
+	if option.MaxWidth != 0 {
+		req.SetQueryParam("maxWidth", fmt.Sprintf("%d", option.MaxWidth))
+	}
+	if option.MaxHeight != 0 {
+		req.SetQueryParam("maxHeight", fmt.Sprintf("%d", option.MaxHeight))
+	}
+	if option.Mode != "" {
+		req.SetQueryParam("mode", option.Mode)
+	}
+	response, err := req.Post(c.BaseUrl + "/generator")
+	if err != nil {
+		return nil, err
+	}
+	return response.RawBody(), nil
+}
+func (o *ThumbnailOption) GetSize(imageWidth, imageHeight int) (thumbnailWidth int, thumbnailHeight int) {
+	switch o.Mode {
+	case "width":
+		thumbnailWidth = o.MaxWidth
+		thumbnailHeight = int(float64(o.MaxWidth) * float64(imageHeight) / float64(imageWidth))
+	case "height":
+		thumbnailHeight = o.MaxHeight
+		thumbnailWidth = int(float64(o.MaxHeight) * float64(imageWidth) / float64(imageHeight))
+	case "resize":
+		thumbnailWidth = o.MaxWidth
+		thumbnailHeight = o.MaxHeight
+	default:
+		widthRatio := float64(imageWidth) / float64(o.MaxWidth)
+		heightRatio := float64(imageHeight) / float64(o.MaxHeight)
+		if widthRatio > heightRatio {
+			thumbnailWidth = o.MaxWidth
+			thumbnailHeight = int(float64(o.MaxWidth) * float64(imageHeight) / float64(imageWidth))
+		} else {
+			thumbnailHeight = o.MaxHeight
+			thumbnailWidth = int(float64(o.MaxHeight) * float64(imageWidth) / float64(imageHeight))
+		}
+	}
+	return
+}
 func (c *ThumbnailClient) Generate(sourcePath string, output string, option ThumbnailOption) error {
 	req := resty.New().R().
 		SetFile("file", sourcePath)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/allentom/harukap"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -40,14 +41,23 @@ func (c *S3Client) Copy(ctx context.Context, bucket, key, destBucket, destKey st
 }
 
 func (c *S3Client) IsExist(ctx context.Context, bucket, key string) (bool, error) {
-	result, err := c.Service.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+	_, err := c.Service.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
+
 	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case "NotFound":
+				return false, nil
+			default:
+				return false, err
+			}
+		}
 		return false, err
 	}
-	return result.ContentLength != nil, nil
+	return true, nil
 }
 
 func (c *S3Client) Delete(ctx context.Context, bucket, key string) error {

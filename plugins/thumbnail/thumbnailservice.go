@@ -41,7 +41,7 @@ func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
 		logger.Info("Init ThumbnailPlugin with default config")
 		prefix := "thumbnails."
 		if p.Prefix != "" {
-			prefix = p.Prefix + "."
+			prefix += p.Prefix
 		}
 		p.config = &ThumbnailServiceConfig{
 			ServiceUrl: e.ConfigProvider.Manager.GetString(fmt.Sprintf("%s.url", prefix)),

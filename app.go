@@ -13,11 +13,12 @@ import (
 )
 
 type HarukaAppEngine struct {
-	ConfigProvider *config.Provider
-	Plugins        []HarukaPlugin
-	LoggerPlugin   *youlog.Plugin
-	HttpService    *haruka.Engine
-	RPCService     *rpc.HarukaRPCService
+	ConfigProvider       *config.Provider
+	Plugins              []HarukaPlugin
+	LoggerPlugin         *youlog.Plugin
+	HttpService          *haruka.Engine
+	RPCService           *rpc.HarukaRPCService
+	OnPluginInitComplete func()
 }
 
 func NewHarukaAppEngine() *HarukaAppEngine {
@@ -60,6 +61,11 @@ func (e *HarukaAppEngine) Run() {
 			bootLogger.Fatal(err.Error())
 		}
 	}
+
+	if e.OnPluginInitComplete != nil {
+		e.OnPluginInitComplete()
+	}
+
 	if e.RPCService != nil {
 		bootLogger.Info("start rpc service")
 		go e.RunRPC()

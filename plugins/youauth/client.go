@@ -10,27 +10,10 @@ var (
 	TokenExpiredError = errors.New("token expired")
 )
 
-type YouAuthResponse interface {
-	GetSuccess() bool
-	GetError() string
-	GetCode() string
-}
 type BaseResponse struct {
 	Success bool   `json:"success"`
 	Err     string `json:"err"`
 	Code    string `json:"code"`
-}
-
-func (r *BaseResponse) GetSuccess() bool {
-	return r.Success
-}
-
-func (r *BaseResponse) GetError() string {
-	return r.Err
-}
-
-func (r *BaseResponse) GetCode() string {
-	return r.Code
 }
 
 type YouAuthClient struct {
@@ -48,31 +31,34 @@ func (c *YouAuthClient) Init() {
 }
 
 type GenerateTokenResponse struct {
-	Data TokenData `json:"data"`
-}
-type TokenData struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	Expire       int64  `json:"expire_in"`
+	TokenType    string `json:"token_type"`
 }
 
-func (c *YouAuthClient) processError(response YouAuthResponse) error {
-	if response.GetSuccess() {
-		return nil
+func (c *YouAuthClient) processError(response map[string]interface{}) error {
+	if ok, okOk := response["success"].(bool); okOk {
+		if ok {
+			return nil
+		}
 	}
-	switch response.GetCode() {
-	case "1001":
-		return TokenExpiredError
-	default:
-		return errors.New(response.GetError())
+	if errcode, errOk := response["code"].(string); errOk {
+		switch errcode {
+		case "1001":
+			return TokenExpiredError
+		default:
+			return errors.New(response["err"].(string))
+		}
 	}
+	return nil
 }
-func (c *YouAuthClient) GetAccessToken(authCode string) (*TokenData, error) {
+func (c *YouAuthClient) GetAccessToken(authCode string) (*GenerateTokenResponse, error) {
 	result := &GenerateTokenResponse{}
-	response, err := c.client.NewRequest().SetBody(map[string]interface{}{
-		"appId":  c.AppId,
-		"secret": c.Secret,
-		"code":   authCode,
-	}).SetResult(result).Post(c.BaseUrl + "/oauth/token")
+	response, err := c.client.NewRequest().SetFormData(map[string]string{
+		"code":       authCode,
+		"grant_type": "authorization_code",
+	}).SetResult(result).Post(c.BaseUrl + "/token")
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +66,7 @@ func (c *YouAuthClient) GetAccessToken(authCode string) (*TokenData, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &result.Data, nil
+	return result, nil
 }
 
 type GetCurrentUserResponse struct {
@@ -93,12 +79,12 @@ type UserData struct {
 
 func (c *YouAuthClient) parseResponse(response *resty.Response, data interface{}) error {
 	body := response.Body()
-	var baseBody BaseResponse
+	var baseBody map[string]interface{}
 	err := json.Unmarshal(body, &baseBody)
 	if err != nil {
 		return err
 	}
-	err = c.processError(&baseBody)
+	err = c.processError(baseBody)
 	if err != nil {
 		return err
 	}
@@ -118,12 +104,12 @@ func (c *YouAuthClient) GetCurrentUser(accessToken string) (*UserData, error) {
 	return &result.Data, nil
 }
 
-func (c *YouAuthClient) RefreshAccessToken(refreshToken string) (*TokenData, error) {
+func (c *YouAuthClient) RefreshAccessToken(refreshToken string) (*GenerateTokenResponse, error) {
 	result := &GenerateTokenResponse{}
-	response, err := c.client.NewRequest().SetBody(map[string]interface{}{
-		"secret":       c.Secret,
-		"refreshToken": refreshToken,
-	}).SetResult(result).Post(c.BaseUrl + "/oauth/refresh")
+	response, err := c.client.NewRequest().SetFormData(map[string]string{
+		"refresh_token": refreshToken,
+		"grant_type":    "refresh_token",
+	}).SetResult(result).Post(c.BaseUrl + "/token")
 	if err != nil {
 		return nil, err
 	}
@@ -131,5 +117,23 @@ func (c *YouAuthClient) RefreshAccessToken(refreshToken string) (*TokenData, err
 	if err != nil {
 		return nil, err
 	}
-	return &result.Data, nil
+	return result, nil
+}
+
+func (c *YouAuthClient) GrantWithPassword(username string, password string) (*GenerateTokenResponse, error) {
+	result := &GenerateTokenResponse{}
+	response, err := c.client.NewRequest().SetFormData(map[string]string{
+		"username":   username,
+		"password":   password,
+		"grant_type": "password",
+		"client_id":  c.AppId,
+	}).SetResult(result).Post(c.BaseUrl + "/token")
+	if err != nil {
+		return nil, err
+	}
+	err = c.parseResponse(response, result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }

@@ -17,3 +17,7 @@ type AuthInfo struct {
 
 type AuthUser interface {
 }
+type CacheableAuthUser interface {
+	Serialize() ([]byte, error)
+	Deserialize(d []byte) (*AuthUser, error)
+}

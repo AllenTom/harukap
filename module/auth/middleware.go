@@ -2,6 +2,7 @@ package auth
 
 import (
 	"github.com/allentom/haruka"
+	"github.com/allentom/harukap/commons"
 )
 
 type AuthMiddleware struct {
@@ -11,6 +12,7 @@ type AuthMiddleware struct {
 }
 
 func (m AuthMiddleware) OnRequest(c *haruka.Context) {
+	var err error
 	if m.RequestFilter != nil && !m.RequestFilter(c) {
 		return
 	}
@@ -18,10 +20,19 @@ func (m AuthMiddleware) OnRequest(c *haruka.Context) {
 	if m.Module.Config.EnableAnonymous && len(jwtToken) == 0 {
 		return
 	}
-	claim, err := m.Module.ParseToken(jwtToken)
-	if err != nil {
-		m.OnError(c, err)
-		return
+	var claims commons.AuthUser
+	if m.Module.CacheStore != nil {
+		claims, err = m.Module.CacheStore.GetUserByToken(jwtToken)
+		if err != nil {
+			m.OnError(c, err)
+			return
+		}
+	} else {
+		claims, err = m.Module.ParseToken(jwtToken)
+		if err != nil {
+			m.OnError(c, err)
+			return
+		}
 	}
-	c.Param["claim"] = claim
+	c.Param["claim"] = claims
 }

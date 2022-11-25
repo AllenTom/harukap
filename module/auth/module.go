@@ -15,9 +15,16 @@ type AuthModule struct {
 	AuthMiddleware AuthMiddleware
 	ConfigProvider *config.Provider
 	Config         AuthModuleConfig
+	CacheStore     *TokenStoreManager
 }
 
-func (m *AuthModule) InitModule() {
+func (m *AuthModule) AddCacheStore(convert Serializer) {
+	m.CacheStore = &TokenStoreManager{
+		Serializer: convert,
+		module:     m,
+	}
+}
+func (m *AuthModule) InitModule() error {
 	authConfig := AuthModuleConfig{}
 	configer := m.ConfigProvider.Manager
 	for key := range configer.GetStringMap("auth") {
@@ -31,6 +38,13 @@ func (m *AuthModule) InitModule() {
 	m.AuthMiddleware = AuthMiddleware{
 		Module: m,
 	}
+	if m.CacheStore != nil {
+		err := m.CacheStore.Init()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (m *AuthModule) GetAuthPluginByName(name string) harukap.AuthPlugin {

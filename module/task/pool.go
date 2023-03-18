@@ -42,3 +42,23 @@ func (p *TaskPool) GetTaskWithStatus(taskType string, status string) Task {
 	}
 	return nil
 }
+
+func (p *TaskPool) GetTaskById(id string) Task {
+	if len(p.Tasks) == 0 {
+		return nil
+	}
+	queue := make([]Task, 0)
+	queue = append(queue, p.Tasks...)
+	for len(queue) > 0 {
+		task := queue[0]
+		queue = queue[1:]
+		if task.GetId() == id {
+			return task
+		}
+		subTasks := task.SubTask()
+		if len(subTasks) > 0 {
+			queue = append(queue, subTasks...)
+		}
+	}
+	return nil
+}

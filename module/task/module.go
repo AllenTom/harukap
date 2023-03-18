@@ -1,15 +1,18 @@
 package task
 
 import (
+	"errors"
+	"fmt"
 	"github.com/allentom/haruka"
 	"reflect"
 )
 
 type TaskModule struct {
-	Pool         *TaskPool
-	Converter    []interface{}
-	ListHandler  haruka.RequestHandler
-	ErrorHandler func(context *haruka.Context, err error)
+	Pool               *TaskPool
+	Converter          []interface{}
+	ListHandler        haruka.RequestHandler
+	GetTaskByIdHandler haruka.RequestHandler
+	ErrorHandler       func(context *haruka.Context, err error)
 }
 
 func NewTaskModule() *TaskModule {
@@ -28,16 +31,38 @@ func NewTaskModule() *TaskModule {
 			"data":    data,
 		})
 	}
+	module.GetTaskByIdHandler = func(context *haruka.Context) {
+		id := context.GetQueryString("id")
+		task := module.Pool.GetTaskById(id)
+		if task == nil {
+			module.ErrorHandler(context, errors.New(fmt.Sprintf("task id = %s not found", id)))
+			return
+		}
+		data, err := module.SerializerTemplate(task)
+		if err != nil {
+			module.ErrorHandler(context, err)
+			return
+		}
+		context.JSON(haruka.JSON{
+			"success": true,
+			"data":    data,
+		})
+	}
 	return module
 }
 
 type Template struct {
-	Id      string      `json:"id"`
-	Type    string      `json:"type"`
-	Status  string      `json:"status"`
-	Created string      `json:"created"`
-	Err     string      `json:"err,omitempty"`
-	Output  interface{} `json:"output,omitempty"`
+	Id           string      `json:"id"`
+	Type         string      `json:"type"`
+	Status       string      `json:"status"`
+	Created      string      `json:"created"`
+	Err          string      `json:"err,omitempty"`
+	Output       interface{} `json:"output,omitempty"`
+	SubTask      []*Template `json:"subTask,omitempty"`
+	StartTime    string      `json:"startTime,omitempty"`
+	EndTime      string      `json:"endTime,omitempty"`
+	Duration     uint        `json:"duration,omitempty"`
+	ParentTaskId string      `json:"parentTaskId,omitempty"`
 }
 
 func (t *TaskModule) AddConverter(converters ...interface{}) {
@@ -56,10 +81,11 @@ func (t *TaskModule) SerializerTemplateList() (interface{}, error) {
 }
 func (t *TaskModule) SerializerTemplate(data Task) (interface{}, error) {
 	template := &Template{
-		Id:      data.GetId(),
-		Type:    data.GetType(),
-		Status:  data.GetStatus(),
-		Created: data.GetCreated().Format("2006-01-02 15:04:05"),
+		Id:           data.GetId(),
+		Type:         data.GetType(),
+		Status:       data.GetStatus(),
+		Created:      data.GetCreated().Format("2006-01-02 15:04:05"),
+		ParentTaskId: data.GetParentTaskId(),
 	}
 	if data.Error() != nil {
 		template.Err = data.Error().Error()
@@ -71,6 +97,23 @@ func (t *TaskModule) SerializerTemplate(data Task) (interface{}, error) {
 	template.Output, err = t.SerializerTemplateOutput(output)
 	if err != nil {
 		return nil, err
+	}
+	if data.SubTask() != nil && len(data.SubTask()) > 0 {
+		template.SubTask = make([]*Template, 0)
+		for _, subTask := range data.SubTask() {
+			subTemplate, err := t.SerializerTemplate(subTask)
+			if err != nil {
+				return nil, err
+			}
+			template.SubTask = append(template.SubTask, subTemplate.(*Template))
+		}
+	}
+	if !data.GetStartTime().IsZero() {
+		template.StartTime = data.GetStartTime().Format("2006-01-02 15:04:05")
+	}
+	if !data.GetEndTime().IsZero() {
+		template.EndTime = data.GetEndTime().Format("2006-01-02 15:04:05")
+		template.Duration = uint(data.GetEndTime().Sub(data.GetStartTime()).Milliseconds())
 	}
 	return template, nil
 }

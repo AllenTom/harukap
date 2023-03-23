@@ -3,6 +3,7 @@ package deepdanbooru
 import (
 	"fmt"
 	"github.com/allentom/harukap"
+	"time"
 )
 
 type Plugin struct {
@@ -25,7 +26,14 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	}
 	host := configure.GetString("deepdanbooru.host")
 	initLogger.Info(fmt.Sprintf("init deepdanbooru client, host = %s", host))
-	p.Client = NewClient(host)
+	p.Client = NewClient(&Config{
+		Url: host,
+	})
+	timeout := configure.GetInt("deepdanbooru.timeout")
+	if timeout == 0 {
+		timeout = 10000 // default 10s
+	}
+	p.Client.SetTimeout(time.Duration(timeout) * time.Millisecond)
 	infoResponse, err := p.Client.Info()
 	if err != nil {
 		return err

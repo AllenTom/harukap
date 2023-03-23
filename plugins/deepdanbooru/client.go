@@ -7,21 +7,28 @@ import (
 	util "github.com/allentom/harukap/utils"
 	"github.com/go-resty/resty/v2"
 	"io"
+	"time"
 )
 
 type Client struct {
-	BaseUrl string
-	client  *resty.Client
+	client *resty.Client
+	conf   *Config
 }
 
-func NewClient(baseUrl string) *Client {
+type Config struct {
+	Url string
+}
+
+func NewClient(conf *Config) *Client {
 	client := resty.New()
 	return &Client{
-		BaseUrl: baseUrl,
-		client:  client,
+		client: client,
+		conf:   conf,
 	}
 }
-
+func (c *Client) SetTimeout(timeout time.Duration) {
+	c.client.SetTimeout(timeout)
+}
 func (c *Client) Tagging(reader io.Reader) ([]Predictions, error) {
 	rawImage, err := io.ReadAll(reader)
 	if err != nil {
@@ -38,7 +45,7 @@ func (c *Client) Tagging(reader io.Reader) ([]Predictions, error) {
 	_, err = c.client.R().
 		SetFileReader("file", fmt.Sprintf("image.%s", imageFormat), bytes.NewBuffer(rawImage)).
 		SetResult(result).
-		Post(c.BaseUrl + "/tagging")
+		Post(c.conf.Url + "/tagging")
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +58,7 @@ func (c *Client) Info() (*InfoResponse, error) {
 	result := &InfoResponse{}
 	_, err := c.client.R().
 		SetResult(result).
-		Get(c.BaseUrl + "/info")
+		Get(c.conf.Url + "/info")
 	if err != nil {
 		return nil, err
 	}

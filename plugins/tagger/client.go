@@ -7,7 +7,6 @@ import (
 	util "github.com/allentom/harukap/utils"
 	"github.com/go-resty/resty/v2"
 	"io"
-	"time"
 )
 
 type Client struct {
@@ -31,7 +30,6 @@ type ServiceInfo struct {
 
 func NewClient(baseUrl string) *Client {
 	client := resty.New()
-	client.SetTimeout(10 * time.Second)
 	return &Client{
 		BaseUrl: baseUrl,
 		client:  client,
@@ -76,4 +74,43 @@ func (c *Client) GetInfo() (*ServiceInfo, error) {
 		return nil, errors.New(fmt.Sprintf("get info failed: %v", result))
 	}
 	return result, nil
+}
+
+func (c *Client) SwitchModel(name string) error {
+	result := &ResponseWrap[struct {
+		Result bool `json:"result"`
+	}]{}
+	body := map[string]string{
+		"model": name,
+	}
+	_, err := c.client.R().
+		SetBody(body).
+		SetResult(result).
+		Post(c.BaseUrl + "/switch")
+	if err != nil {
+		return err
+	}
+	if !result.Success {
+		return errors.New(fmt.Sprintf("switch model failed: %v", result.Error))
+	}
+	return nil
+}
+
+type TaggerState struct {
+	ModelName string   `json:"modelName"`
+	ModelList []string `json:"modelList"`
+}
+
+func (c *Client) GetTaggerState() (*TaggerState, error) {
+	result := &ResponseWrap[TaggerState]{}
+	_, err := c.client.R().
+		SetResult(result).
+		Get(c.BaseUrl + "/state")
+	if err != nil {
+		return nil, err
+	}
+	if !result.Success {
+		return nil, errors.New(fmt.Sprintf("get info failed: %v", result))
+	}
+	return &result.Data, nil
 }

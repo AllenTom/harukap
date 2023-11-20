@@ -49,3 +49,25 @@ func TestClient_GetInfo(t *testing.T) {
 		t.Fatal("info success is false")
 	}
 }
+
+func TestClient_SwitchModel(t *testing.T) {
+	client, err := InitClient(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.SwitchModel("Deepdanbooru")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClient_GetTaggerState(t *testing.T) {
+	client, err := InitClient(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetTaggerState()
+	if err != nil {
+		t.Fatal(err)
+	}
+}

@@ -38,6 +38,10 @@ func (i *ImageTaggerPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	return nil
 }
 
+func (i *ImageTaggerPlugin) IsEnable() bool {
+	return i.Enable && i.Client != nil
+}
+
 func NewImageTaggerPlugin() *ImageTaggerPlugin {
 	return &ImageTaggerPlugin{}
 }

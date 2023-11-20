@@ -36,7 +36,7 @@ func NewClient(baseUrl string) *Client {
 	}
 }
 
-func (c *Client) TagImage(reader io.Reader) ([]ImageTag, error) {
+func (c *Client) TagImage(reader io.Reader, taggerModel string) ([]ImageTag, error) {
 	rawImage, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
@@ -52,6 +52,7 @@ func (c *Client) TagImage(reader io.Reader) ([]ImageTag, error) {
 	_, err = c.client.R().
 		SetFileReader("file", fmt.Sprintf("image.%s", imageFormat), bytes.NewBuffer(rawImage)).
 		SetResult(result).
+		SetQueryParam("model", taggerModel).
 		Post(c.BaseUrl + "/tagimage")
 	if err != nil {
 		return nil, err

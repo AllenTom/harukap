@@ -18,7 +18,6 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	initLogger.Info("init NSFW Check plugin")
 	configure := e.ConfigProvider.Manager
 	enable := configure.GetBool("nsfwcheck.enable")
-	p.Enable = enable
 	if !enable {
 		initLogger.Info("nsfwcheck is disabled")
 		return nil
@@ -34,5 +33,6 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		return fmt.Errorf("info response success is false")
 	}
 	initLogger.Info("nsfwcheck connection success")
+	p.Enable = enable
 	return nil
 }

@@ -18,7 +18,6 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	initLogger.Info("init ImageClassify plugin")
 	configure := e.ConfigProvider.Manager
 	enable := configure.GetBool("imageclassify.enable")
-	p.Enable = enable
 	if !enable {
 		initLogger.Info("imageclassify is disabled")
 		return nil
@@ -34,5 +33,6 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		return fmt.Errorf("info response success is false")
 	}
 	initLogger.Info("imageclassify connection success")
+	p.Enable = enable
 	return nil
 }

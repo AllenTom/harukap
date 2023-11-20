@@ -19,7 +19,6 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	initLogger.Info("init deepdanbooru plugin")
 	configure := e.ConfigProvider.Manager
 	enable := configure.GetBool("deepdanbooru.enable")
-	p.Enable = enable
 	if !enable {
 		initLogger.Info("deepdanbooru is disabled")
 		return nil
@@ -42,5 +41,6 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		return fmt.Errorf("info response success is false")
 	}
 	initLogger.Info("deepdanbooru connection success")
+	p.Enable = enable
 	return nil
 }

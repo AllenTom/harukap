@@ -36,7 +36,24 @@ func NewClient(baseUrl string) *Client {
 	}
 }
 
-func (c *Client) TagImage(reader io.Reader, taggerModel string) ([]ImageTag, error) {
+//wd14_MOAT
+//wd14_SwinV2
+//wd14_ConvNext
+//wd14_ConvNextV2
+//wd14_ViT
+//DeepDanbooru
+//clip2
+
+var ModelWd14MOAT = "wd14_MOAT"
+var ModelWd14SwinV2 = "wd14_SwinV2"
+var ModelWd14ConvNext = "wd14_ConvNext"
+var ModelWd14ConvNextV2 = "wd14_ConvNextV2"
+var ModelViT = "wd14_ViT"
+var ModelDeepDanbooru = "DeepDanbooru"
+var ModelClip2 = "clip2"
+var ModelAuto = "auto"
+
+func (c *Client) TagImage(reader io.Reader, taggerModel string, threshold float64) ([]ImageTag, error) {
 	rawImage, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, err
@@ -53,6 +70,7 @@ func (c *Client) TagImage(reader io.Reader, taggerModel string) ([]ImageTag, err
 		SetFileReader("file", fmt.Sprintf("image.%s", imageFormat), bytes.NewBuffer(rawImage)).
 		SetResult(result).
 		SetQueryParam("model", taggerModel).
+		SetQueryParam("threshold", fmt.Sprintf("%f", threshold)).
 		Post(c.BaseUrl + "/tagimage")
 	if err != nil {
 		return nil, err

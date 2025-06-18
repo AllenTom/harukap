@@ -6,7 +6,7 @@ import (
 )
 
 type Plugin struct {
-	Client     *meilisearch.Client
+	Client     meilisearch.ServiceManager
 	OnComplete func()
 }
 
@@ -24,10 +24,7 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	initLogger.WithFields(map[string]interface{}{
 		"host": host,
 	}).Info("init meilisearch client")
-	p.Client = meilisearch.NewClient(meilisearch.ClientConfig{
-		Host:   host,
-		APIKey: apiKey,
-	})
+	p.Client = meilisearch.New(host, meilisearch.WithAPIKey(apiKey))
 	initLogger.Info("test meilisearch connection")
 	status, err := p.Client.Health()
 	if err != nil {

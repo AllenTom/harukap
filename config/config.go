@@ -1,10 +1,10 @@
 package config
 
 import (
-	"github.com/spf13/viper"
-	_ "github.com/spf13/viper/remote"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/viper"
 )
 
 type Provider struct {
@@ -38,19 +38,6 @@ func (p *Provider) OnInit() error {
 	p.Manager.SetConfigName(configName)
 	if _, err := os.Stat(filepath.Join(configPath, configName)); err == nil {
 		err := p.Manager.ReadInConfig()
-		if err != nil {
-			return err
-		}
-	}
-	etcdEnable := os.Getenv("ETCD_ENABLE")
-	if len(etcdEnable) > 0 {
-		etcdEndpoint := os.Getenv("ETCD_ENDPOINT")
-		etcdConfigPath := os.Getenv("ETCD_CONFIG_PATH")
-		err := p.Manager.AddRemoteProvider("etcd", etcdEndpoint, etcdConfigPath)
-		if err != nil {
-			return err
-		}
-		err = p.Manager.ReadRemoteConfig()
 		if err != nil {
 			return err
 		}

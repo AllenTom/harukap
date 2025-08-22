@@ -3,11 +3,12 @@ package storage
 import (
 	"context"
 	"fmt"
-	"github.com/allentom/harukap"
-	"github.com/spf13/afero"
 	"io"
 	"io/ioutil"
 	"path/filepath"
+
+	"github.com/allentom/harukap"
+	"github.com/spf13/afero"
 )
 
 type LocalStorageConfig struct {
@@ -66,6 +67,11 @@ func (l *LocalStorage) OnInit(e *harukap.HarukaAppEngine) error {
 			Path: e.ConfigProvider.Manager.GetString(baseKeyPath + ".path"),
 		}
 	}
+	logger := e.LoggerPlugin.Logger.NewScope("LocalStorage")
+	logger.WithFields(map[string]interface{}{
+		"name": l.ConfigName,
+		"path": l.Config.Path,
+	}).Info("local storage config")
 	return l.Init()
 }
 

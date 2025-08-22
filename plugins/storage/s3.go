@@ -6,14 +6,16 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"io/ioutil"
+
 	"github.com/allentom/harukap"
+	util "github.com/allentom/harukap/utils"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"io"
-	"io/ioutil"
 )
 
 type S3ClientConfig struct {
@@ -83,6 +85,16 @@ func (c *S3Client) OnInit(e *harukap.HarukaAppEngine) error {
 			Password: e.ConfigProvider.Manager.GetString(baseKeyPath + ".password"),
 		}
 	}
+	logger := e.LoggerPlugin.Logger.NewScope("S3Storage")
+	logger.WithFields(map[string]interface{}{
+		"name":     c.ConfigName,
+		"region":   c.Config.Region,
+		"endpoint": c.Config.Endpoint,
+		"id":       util.MaskKeepHeadTail(c.Config.Id, 2, 2),
+		"secret":   util.MaskKeepHeadTail(c.Config.Secret, 2, 2),
+		"token":    util.MaskKeepHeadTail(c.Config.Token, 1, 2),
+		"password": util.MaskKeepHeadTail(c.Config.Password, 1, 2),
+	}).Info("s3 storage config")
 	return c.Init()
 }
 

@@ -21,6 +21,10 @@ func (i *ImageUpscalerPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 
 	logger.Info("Init ImageUpscalerPlugin")
 	baseUrl := e.ConfigProvider.Manager.GetString("imageupscaler.url")
+	logger.WithFields(map[string]interface{}{
+		"enable":  isEnable,
+		"baseUrl": baseUrl,
+	}).Info("imageupscaler config")
 	i.Client = NewClient(baseUrl)
 	logger.Info("check connection")
 	info, err := i.Client.GetInfo()
@@ -44,4 +48,15 @@ func (i *ImageUpscalerPlugin) IsEnable() bool {
 
 func NewImageUpscalerPlugin() *ImageUpscalerPlugin {
 	return &ImageUpscalerPlugin{}
+}
+
+func (i *ImageUpscalerPlugin) GetPluginConfig() map[string]interface{} {
+	base := ""
+	if i.Client != nil {
+		base = i.Client.BaseUrl
+	}
+	return map[string]interface{}{
+		"enable":  i.Enable,
+		"baseUrl": base,
+	}
 }

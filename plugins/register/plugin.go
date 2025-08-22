@@ -23,6 +23,11 @@ func (p *RegisterPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 			RegPath:   e.ConfigProvider.Manager.GetString("register.regpath"),
 		}
 	}
+	p.logger.WithFields(map[string]interface{}{
+		"enable":    p.Config.Enable,
+		"endpoints": p.Config.Endpoints,
+		"regpath":   p.Config.RegPath,
+	}).Info("register config")
 	if !p.Config.Enable {
 		p.logger.Info("register plugin is disabled")
 		return nil
@@ -35,4 +40,15 @@ func (p *RegisterPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 		return err
 	}
 	return RegisterFromFile(p.Config.RegPath, &client)
+}
+
+func (p *RegisterPlugin) GetPluginConfig() map[string]interface{} {
+	if p.Config == nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"enable":    p.Config.Enable,
+		"endpoints": p.Config.Endpoints,
+		"regpath":   p.Config.RegPath,
+	}
 }

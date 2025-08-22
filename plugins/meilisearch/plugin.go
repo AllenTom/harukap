@@ -2,6 +2,7 @@ package meilisearch
 
 import (
 	"github.com/allentom/harukap"
+	util "github.com/allentom/harukap/utils"
 	"github.com/meilisearch/meilisearch-go"
 )
 
@@ -23,6 +24,15 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	apiKey := configure.GetString("meilisearch.apiKey")
 	initLogger.WithFields(map[string]interface{}{
 		"host": host,
+		"apiKey": func() string {
+			if apiKey == "" {
+				return ""
+			}
+			return util.MaskKeepHeadTail(apiKey, 2, 2)
+		}(),
+	}).Info("meilisearch config")
+	initLogger.WithFields(map[string]interface{}{
+		"host": host,
 	}).Info("init meilisearch client")
 	p.Client = meilisearch.New(host, meilisearch.WithAPIKey(apiKey))
 	initLogger.Info("test meilisearch connection")
@@ -35,4 +45,11 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		p.OnComplete()
 	}
 	return err
+}
+
+func (p *Plugin) GetPluginConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"host":   "configured",
+		"apiKey": "***",
+	}
 }

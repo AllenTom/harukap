@@ -2,6 +2,7 @@ package nsfwcheck
 
 import (
 	"fmt"
+
 	"github.com/allentom/harukap"
 )
 
@@ -23,6 +24,10 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		return nil
 	}
 	host := configure.GetString("nsfwcheck.host")
+	initLogger.WithFields(map[string]interface{}{
+		"enable": enable,
+		"host":   host,
+	}).Info("nsfwcheck config")
 	initLogger.Info(fmt.Sprintf("init nsfwcheck client, host = %s", host))
 	p.Client = NewClient(host)
 	infoResponse, err := p.Client.Info()
@@ -35,4 +40,15 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	initLogger.Info("nsfwcheck connection success")
 	p.Enable = enable
 	return nil
+}
+
+func (p *Plugin) GetPluginConfig() map[string]interface{} {
+	url := ""
+	if p.Client != nil {
+		url = p.Client.BaseUrl
+	}
+	return map[string]interface{}{
+		"enable": p.Enable,
+		"url":    url,
+	}
 }

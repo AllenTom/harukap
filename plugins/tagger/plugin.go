@@ -203,8 +203,18 @@ func (i *ImageTaggerPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	if config.ConsulEnable {
 		config.ConsulAddress = e.ConfigProvider.Manager.GetString("imagetagger.consul.address")
 		config.ConsulService = e.ConfigProvider.Manager.GetString("imagetagger.consul.service")
+		logger.WithFields(map[string]interface{}{
+			"enable":         config.Enable,
+			"consul.enable":  config.ConsulEnable,
+			"consul.address": config.ConsulAddress,
+			"consul.service": config.ConsulService,
+		}).Info("imagetagger config")
 	} else {
 		config.URL = e.ConfigProvider.Manager.GetString("imagetagger.url")
+		logger.WithFields(map[string]interface{}{
+			"enable": config.Enable,
+			"url":    config.URL,
+		}).Info("imagetagger config")
 	}
 
 	// 使用新的配置初始化插件
@@ -221,4 +231,22 @@ func (i *ImageTaggerPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	i.config = plugin.config
 
 	return nil
+}
+
+func (i *ImageTaggerPlugin) GetPluginConfig() map[string]interface{} {
+	if i.config == nil {
+		return map[string]interface{}{"enable": i.enable}
+	}
+	cfg := map[string]interface{}{
+		"enable": i.config.Enable,
+	}
+	if i.config.ConsulEnable {
+		cfg["mode"] = "consul"
+		cfg["consul.address"] = i.config.ConsulAddress
+		cfg["consul.service"] = i.config.ConsulService
+	} else {
+		cfg["mode"] = "direct"
+		cfg["url"] = i.config.URL
+	}
+	return cfg
 }

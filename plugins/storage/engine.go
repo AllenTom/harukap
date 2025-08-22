@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+
 	"github.com/allentom/harukap"
 )
 
@@ -18,6 +19,11 @@ func (e *Engine) OnInit(engine *harukap.HarukaAppEngine) error {
 		if storageType == "" {
 			continue
 		}
+		logger := engine.LoggerPlugin.Logger.NewScope("StorageEngine")
+		logger.WithFields(map[string]interface{}{
+			"name": name,
+			"type": storageType,
+		}).Info("storage config")
 		switch storageType {
 		case "s3":
 			s3Plugin := &S3Client{
@@ -46,4 +52,13 @@ func (e *Engine) OnInit(engine *harukap.HarukaAppEngine) error {
 
 func (e *Engine) GetStorage(name string) FileSystem {
 	return e.storages[name]
+}
+
+func (e *Engine) GetPluginConfig() map[string]interface{} {
+	cfg := map[string]interface{}{}
+	for name, fs := range e.storages {
+		_ = fs
+		cfg[name] = "initialized"
+	}
+	return cfg
 }

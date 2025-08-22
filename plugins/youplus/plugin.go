@@ -3,6 +3,7 @@ package youplus
 import (
 	"context"
 	"fmt"
+
 	"github.com/allentom/harukap"
 	"github.com/allentom/harukap/commons"
 	util "github.com/allentom/harukap/utils"
@@ -26,6 +27,10 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	enableRPC := e.ConfigProvider.Manager.GetBool("youplus.enablerpc")
 	if enableRPC {
 		rpcAddr := e.ConfigProvider.Manager.GetString("youplus.rpc")
+		logger.WithFields(map[string]interface{}{
+			"rpc.enable": enableRPC,
+			"rpc.addr":   rpcAddr,
+		}).Info("youplus rpc config")
 		p.RPCClient = youplustoolkitrpc.NewYouPlusRPCClient(rpcAddr)
 		err := p.RPCClient.Init()
 		if err != nil {
@@ -36,6 +41,11 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		if enableEntity {
 			name := e.ConfigProvider.Manager.GetString("youplus.entity.name")
 			version := e.ConfigProvider.Manager.GetInt64("youplus.entity.version")
+			logger.WithFields(map[string]interface{}{
+				"entity.enable":  enableEntity,
+				"entity.name":    name,
+				"entity.version": version,
+			}).Info("youplus entity config")
 			p.Entity = entry.NewEntityClient(name, version, &entry.EntityExport{}, p.RPCClient)
 			p.Entity.HeartbeatRate = 3000
 			// register entity
@@ -60,10 +70,18 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 			}
 
 		}
+	} else {
+		logger.WithFields(map[string]interface{}{
+			"rpc.enable": enableRPC,
+		}).Info("youplus rpc disabled")
 	}
 	// http
 	p.Client = youplus.NewClient()
-	p.Client.Init(e.ConfigProvider.Manager.GetString("youplus.url"))
+	httpUrl := e.ConfigProvider.Manager.GetString("youplus.url")
+	logger.WithFields(map[string]interface{}{
+		"http.url": httpUrl,
+	}).Info("youplus http config")
+	p.Client.Init(httpUrl)
 	return nil
 }
 func (p *Plugin) GetAuthInfo() (*commons.AuthInfo, error) {
@@ -87,4 +105,18 @@ func (p *Plugin) GetAuthUserByToken(token string) (commons.AuthUser, error) {
 		return nil, nil
 	}
 	return p.AuthFromToken(token)
+}
+
+func (p *Plugin) GetPluginConfig() map[string]interface{} {
+	cfg := map[string]interface{}{}
+	if p.Client != nil {
+		cfg["http.url"] = "configured"
+	}
+	if p.RPCClient != nil {
+		cfg["rpc.enabled"] = true
+	}
+	if p.Entity != nil {
+		cfg["entity.enabled"] = true
+	}
+	return cfg
 }

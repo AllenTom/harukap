@@ -1,6 +1,10 @@
 package harukap
 
 import (
+	"fmt"
+	"log"
+	"net"
+
 	"github.com/allentom/haruka"
 	"github.com/allentom/harukap/config"
 	"github.com/allentom/harukap/plugins/youlog"
@@ -8,8 +12,6 @@ import (
 	youlog2 "github.com/project-xpolaris/youplustoolkit/youlog"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"log"
-	"net"
 )
 
 type HarukaAppEngine struct {
@@ -28,6 +30,21 @@ func NewHarukaAppEngine() *HarukaAppEngine {
 }
 func (e *HarukaAppEngine) UsePlugin(plugins ...HarukaPlugin) {
 	e.Plugins = append(e.Plugins, plugins...)
+}
+
+// GetPluginsConfig 汇总所有实现了 PluginWithConfig 的插件配置
+func (e *HarukaAppEngine) GetPluginsConfig() map[string]map[string]interface{} {
+	result := make(map[string]map[string]interface{})
+	for _, p := range e.Plugins {
+		if pc, ok := p.(PluginWithConfig); ok {
+			cfg := pc.GetPluginConfig()
+			if cfg != nil {
+				// 使用类型名作为键
+				result[fmt.Sprintf("%T", p)] = cfg
+			}
+		}
+	}
+	return result
 }
 func (e *HarukaAppEngine) RunRPC() {
 	lis, err := net.Listen("tcp", e.ConfigProvider.Manager.GetString("rpc.addr"))

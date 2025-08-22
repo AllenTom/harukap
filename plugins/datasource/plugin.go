@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/allentom/harukap"
+	util "github.com/allentom/harukap/utils"
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -53,14 +54,30 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		datasourceType := configure.GetString(fmt.Sprintf("%s.type", prefix))
 		var dbSource Datasource
 
+		// 输出配置（掩码敏感信息）
+		fields := map[string]interface{}{
+			"source": source,
+			"type":   datasourceType,
+		}
+
 		switch datasourceType {
 		case "sqlite":
 			dbSource = &Sqlite{}
+			fields["path"] = configure.GetString(fmt.Sprintf("%s.path", prefix))
 		case "mysql":
 			dbSource = &Mysql{}
+			fields["host"] = configure.GetString(fmt.Sprintf("%s.host", prefix))
+			fields["port"] = configure.GetString(fmt.Sprintf("%s.port", prefix))
+			fields["database"] = configure.GetString(fmt.Sprintf("%s.database", prefix))
+			user := configure.GetString(fmt.Sprintf("%s.username", prefix))
+			pwd := configure.GetString(fmt.Sprintf("%s.password", prefix))
+			fields["username"] = util.MaskKeepHeadTail(user, 1, 1)
+			fields["password"] = util.MaskKeepHeadTail(pwd, 1, 2)
 		default:
 			return fmt.Errorf("unknown datasource type: %s", datasourceType)
 		}
+
+		initLogger.WithFields(fields).Info("datasource config")
 
 		dia, err := dbSource.OnGetDialector(e.ConfigProvider.Manager, prefix)
 		if err != nil {
@@ -100,6 +117,16 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	}
 
 	return nil
+}
+
+func (p *Plugin) GetPluginConfig() map[string]interface{} {
+	cfg := map[string]interface{}{}
+	list := map[string]string{}
+	for name := range p.DBS {
+		list[name] = "connected"
+	}
+	cfg["databases"] = list
+	return cfg
 }
 
 type Datasource interface {

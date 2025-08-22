@@ -1,12 +1,16 @@
 package youauth
 
 import (
+	"fmt"
+	"net/http"
+	"net/url"
+
 	"github.com/allentom/haruka"
 	"github.com/allentom/harukap"
 	"github.com/allentom/harukap/commons"
+	"github.com/allentom/harukap/plugins/nacos"
+	util "github.com/allentom/harukap/utils"
 	"github.com/project-xpolaris/youplustoolkit/youlink"
-	"net/http"
-	"net/url"
 )
 
 type OauthPlugin struct {
@@ -27,10 +31,79 @@ func (p *OauthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	if p.ConfigPrefix == "" {
 		p.ConfigPrefix = "auth"
 	}
+	// 自动定位到 auth.<providerKey>（如 auth.youauth），便于将 nacos 配置放在 youauth 节点下
+	configer := e.ConfigProvider.Manager
+	if p.ConfigPrefix == "auth" {
+		for key := range configer.GetStringMap("auth") {
+			if configer.GetString(fmt.Sprintf("auth.%s.type", key)) == "youauth" {
+				p.ConfigPrefix = fmt.Sprintf("auth.%s", key)
+				break
+			}
+		}
+	}
 	p.Client = &YouAuthClient{}
-	p.Client.BaseUrl = e.ConfigProvider.Manager.GetString(p.getConfig("url"))
-	p.Client.AppId = e.ConfigProvider.Manager.GetString(p.getConfig("appid"))
-	p.Client.Secret = e.ConfigProvider.Manager.GetString(p.getConfig("secret"))
+	// 优先尝试通过 Nacos 发现 YouAuth 地址
+	useNacos := configer.GetBool(p.getConfig("nacos.enable"))
+	if useNacos {
+		serviceName := configer.GetString(p.getConfig("nacos.serviceName"))
+		if serviceName == "" {
+			serviceName = "youauth"
+		}
+		group := configer.GetString(p.getConfig("nacos.group"))
+		if group == "" {
+			group = "DEFAULT_GROUP"
+		}
+		scheme := configer.GetString(p.getConfig("nacos.scheme"))
+		if scheme == "" {
+			scheme = "http"
+		}
+		for _, pl := range e.Plugins {
+			if np, ok := pl.(*nacos.NacosPlugin); ok && np != nil {
+				inst, err := np.GetServiceInstance(serviceName, group)
+				if err == nil && inst != nil && inst.Ip != "" && inst.Port > 0 {
+					p.Client.BaseUrl = fmt.Sprintf("%s://%s:%d", scheme, inst.Ip, inst.Port)
+					break
+				}
+			}
+		}
+	}
+	// 回退到静态配置
+	if p.Client.BaseUrl == "" {
+		p.Client.BaseUrl = configer.GetString(p.getConfig("url"))
+	}
+	p.Client.AppId = configer.GetString(p.getConfig("appid"))
+	p.Client.Secret = configer.GetString(p.getConfig("secret"))
+	// youlog 配置输出
+	logger := e.LoggerPlugin.Logger.NewScope("YouAuthPlugin")
+	logger.WithFields(map[string]interface{}{
+		"baseUrl": p.Client.BaseUrl,
+		"appid":   p.Client.AppId,
+		"secret":  util.MaskKeepHeadTail(p.Client.Secret, 2, 2),
+		"nacos": map[string]interface{}{
+			"enable": useNacos,
+			"serviceName": func() string {
+				v := configer.GetString(p.getConfig("nacos.serviceName"))
+				if v == "" {
+					return "youauth"
+				}
+				return v
+			}(),
+			"group": func() string {
+				v := configer.GetString(p.getConfig("nacos.group"))
+				if v == "" {
+					return "DEFAULT_GROUP"
+				}
+				return v
+			}(),
+			"scheme": func() string {
+				v := configer.GetString(p.getConfig("nacos.scheme"))
+				if v == "" {
+					return "http"
+				}
+				return v
+			}(),
+		},
+	}).Info("youauth config")
 	p.Client.Init()
 	return nil
 }
@@ -129,4 +202,15 @@ func (p *PasswordAuthPlugin) GetAuthUserByToken(token string) (commons.AuthUser,
 
 func (p *PasswordAuthPlugin) TokenTypeName() string {
 	return "youauth"
+}
+
+func (p *OauthPlugin) GetPluginConfig() map[string]interface{} {
+	cfg := map[string]interface{}{}
+	if p.Client != nil {
+		cfg["baseUrl"] = p.Client.BaseUrl
+		cfg["appid"] = p.Client.AppId
+		cfg["secret"] = util.MaskKeepHeadTail(p.Client.Secret, 2, 2)
+	}
+	cfg["prefix"] = p.ConfigPrefix
+	return cfg
 }

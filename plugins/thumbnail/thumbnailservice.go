@@ -3,13 +3,14 @@ package thumbnail
 import (
 	"context"
 	"fmt"
-	"github.com/allentom/harukap"
-	"github.com/go-resty/resty/v2"
-	"github.com/project-xpolaris/youplustoolkit/youlog"
 	"image"
 	"io"
 	"io/ioutil"
 	"mime"
+
+	"github.com/allentom/harukap"
+	"github.com/go-resty/resty/v2"
+	"github.com/project-xpolaris/youplustoolkit/youlog"
 )
 
 var DefaultThumbnailServicePlugin = &ThumbnailServicePlugin{}
@@ -48,6 +49,10 @@ func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
 			Enable:     e.ConfigProvider.Manager.GetBool(fmt.Sprintf("%s.enable", prefix)),
 		}
 	}
+	logger.WithFields(map[string]interface{}{
+		"enable": p.config.Enable,
+		"url":    p.config.ServiceUrl,
+	}).Info("thumbnail service config")
 	if !p.config.Enable {
 		logger.Info("ThumbnailPlugin is disabled")
 		return nil
@@ -60,6 +65,16 @@ func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	}
 	logger.Info("Init ThumbnailPlugin success")
 	return nil
+}
+
+func (p *ThumbnailServicePlugin) GetPluginConfig() map[string]interface{} {
+	if p.config == nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"enable": p.config.Enable,
+		"url":    p.config.ServiceUrl,
+	}
 }
 
 type ThumbnailClient struct {

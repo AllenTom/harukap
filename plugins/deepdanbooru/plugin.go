@@ -2,8 +2,9 @@ package deepdanbooru
 
 import (
 	"fmt"
-	"github.com/allentom/harukap"
 	"time"
+
+	"github.com/allentom/harukap"
 )
 
 type Plugin struct {
@@ -24,6 +25,10 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 		return nil
 	}
 	host := configure.GetString("deepdanbooru.host")
+	initLogger.WithFields(map[string]interface{}{
+		"enable": enable,
+		"host":   host,
+	}).Info("deepdanbooru config")
 	initLogger.Info(fmt.Sprintf("init deepdanbooru client, host = %s", host))
 	p.Client = NewClient(&Config{
 		Url: host,
@@ -43,4 +48,15 @@ func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
 	initLogger.Info("deepdanbooru connection success")
 	p.Enable = enable
 	return nil
+}
+
+func (p *Plugin) GetPluginConfig() map[string]interface{} {
+	url := ""
+	if p.Client != nil && p.Client.conf != nil {
+		url = p.Client.conf.Url
+	}
+	return map[string]interface{}{
+		"enable": p.Enable,
+		"url":    url,
+	}
 }

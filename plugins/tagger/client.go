@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"time"
 
 	util "github.com/allentom/harukap/utils"
 	"github.com/go-resty/resty/v2"
-	"github.com/hashicorp/consul/api"
 )
 
 // ClientConfig 定义了客户端的配置选项
@@ -20,10 +18,6 @@ type ClientConfig struct {
 	RetryCount       int           // 重试次数
 	RetryWaitTime    time.Duration // 重试等待时间
 	MaxRetryWaitTime time.Duration // 最大重试等待时间
-
-	// 服务发现配置
-	ConsulConfig *api.Config // Consul 配置
-	ServiceName  string      // 服务名称
 
 	// 基础 URL（直接连接模式）
 	BaseURL string
@@ -46,8 +40,6 @@ func DefaultConfig() *ClientConfig {
 type Client struct {
 	BaseUrl string
 	client  *resty.Client
-	consul  *api.Client
-	service string
 	config  *ClientConfig
 }
 
@@ -73,13 +65,6 @@ func NewClient(baseUrl string) *Client {
 	return NewClientWithConfig(config)
 }
 
-func NewConsulClient(consul *api.Client, service string) *Client {
-	config := DefaultConfig()
-	config.ServiceName = service
-	config.ConsulConfig = api.DefaultConfig()
-	return NewClientWithConfig(config)
-}
-
 // NewClientWithConfig 使用自定义配置创建客户端
 func NewClientWithConfig(config *ClientConfig) *Client {
 	client := resty.New()
@@ -101,15 +86,6 @@ func NewClientWithConfig(config *ClientConfig) *Client {
 		config:  config,
 	}
 
-	// 如果是 Consul 模式，设置 Consul 客户端
-	if config.ConsulConfig != nil {
-		consulClient, err := api.NewClient(config.ConsulConfig)
-		if err == nil {
-			c.consul = consulClient
-			c.service = config.ServiceName
-		}
-	}
-
 	return c
 }
 
@@ -126,39 +102,7 @@ func normalizeURL(url string) string {
 }
 
 func (c *Client) getServiceUrl() (string, error) {
-	if c.consul == nil {
-		return normalizeURL(c.BaseUrl), nil
-	}
-
-	// 使用配置的重试参数
-	maxRetries := c.config.RetryCount
-	retryInterval := c.config.RetryWaitTime
-
-	for i := 0; i < maxRetries; i++ {
-		services, _, err := c.consul.Health().Service(c.service, "", true, nil)
-		if err != nil {
-			if i == maxRetries-1 {
-				return "", fmt.Errorf("failed to get service from consul after %d retries: %v", maxRetries, err)
-			}
-			time.Sleep(retryInterval)
-			continue
-		}
-
-		if len(services) == 0 {
-			if i == maxRetries-1 {
-				return "", errors.New("no healthy service found in consul")
-			}
-			time.Sleep(retryInterval)
-			continue
-		}
-
-		// 随机选择一个服务实例
-		rand.Seed(time.Now().UnixNano())
-		service := services[rand.Intn(len(services))].Service
-		return normalizeURL(fmt.Sprintf("http://%s:%d", service.Address, service.Port)), nil
-	}
-
-	return "", errors.New("failed to get service after all retries")
+	return normalizeURL(c.BaseUrl), nil
 }
 
 //wd14_MOAT

@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"github.com/allentom/harukap"
-	"github.com/hashicorp/consul/api"
 )
 
 // Config 是插件的配置结构体
@@ -13,10 +12,6 @@ type Config struct {
 	Enable bool
 	// 直接连接配置
 	URL string
-	// Consul 配置
-	ConsulEnable  bool
-	ConsulAddress string
-	ConsulService string
 }
 
 // Validate 验证配置是否有效
@@ -25,17 +20,8 @@ func (c *Config) Validate() error {
 		return nil
 	}
 
-	if c.ConsulEnable {
-		if c.ConsulAddress == "" {
-			return fmt.Errorf("consul address is required when consul is enabled")
-		}
-		if c.ConsulService == "" {
-			return fmt.Errorf("consul service name is required when consul is enabled")
-		}
-	} else {
-		if c.URL == "" {
-			return fmt.Errorf("url is required when consul is disabled")
-		}
+	if c.URL == "" {
+		return fmt.Errorf("url is required")
 	}
 
 	return nil
@@ -64,7 +50,6 @@ type ImageTagger interface {
 type ImageTaggerPlugin struct {
 	client ImageTagger
 	enable bool
-	consul *api.Client
 	config *Config
 }
 
@@ -89,32 +74,13 @@ func NewImageTaggerPluginWithConfig(config *Config) (*ImageTaggerPlugin, error) 
 	}
 
 	var err error
-	if config.ConsulEnable {
-		plugin.client, plugin.consul, err = initConsulClient(config)
-	} else {
-		plugin.client, err = initDirectClient(config)
-	}
+	plugin.client, err = initDirectClient(config)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
 
 	return plugin, nil
-}
-
-// initConsulClient 初始化 Consul 客户端
-func initConsulClient(config *Config) (ImageTagger, *api.Client, error) {
-	consulConfig := api.DefaultConfig()
-	consulConfig.Address = config.ConsulAddress
-	consulClient, err := api.NewClient(consulConfig)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create consul client: %w", err)
-	}
-
-	client := NewConsulClient(consulClient, config.ConsulService)
-	// 确保 Consul 配置被正确设置
-	client.config.ConsulConfig = consulConfig
-	return client, consulClient, nil
 }
 
 // initDirectClient 初始化直接连接客户端
@@ -197,25 +163,11 @@ func (i *ImageTaggerPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 
 	logger.Info("Init ImageTaggerPlugin")
 
-	// 检查是否启用 Consul
-	config.ConsulEnable = e.ConfigProvider.Manager.GetBool("imagetagger.consul.enable")
-
-	if config.ConsulEnable {
-		config.ConsulAddress = e.ConfigProvider.Manager.GetString("imagetagger.consul.address")
-		config.ConsulService = e.ConfigProvider.Manager.GetString("imagetagger.consul.service")
-		logger.WithFields(map[string]interface{}{
-			"enable":         config.Enable,
-			"consul.enable":  config.ConsulEnable,
-			"consul.address": config.ConsulAddress,
-			"consul.service": config.ConsulService,
-		}).Info("imagetagger config")
-	} else {
-		config.URL = e.ConfigProvider.Manager.GetString("imagetagger.url")
-		logger.WithFields(map[string]interface{}{
-			"enable": config.Enable,
-			"url":    config.URL,
-		}).Info("imagetagger config")
-	}
+	config.URL = e.ConfigProvider.Manager.GetString("imagetagger.url")
+	logger.WithFields(map[string]interface{}{
+		"enable": config.Enable,
+		"url":    config.URL,
+	}).Info("imagetagger config")
 
 	// 使用新的配置初始化插件
 	plugin, err := NewImageTaggerPluginWithConfig(config)
@@ -227,7 +179,6 @@ func (i *ImageTaggerPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	// 复制插件状态
 	i.client = plugin.client
 	i.enable = plugin.enable
-	i.consul = plugin.consul
 	i.config = plugin.config
 
 	return nil
@@ -240,13 +191,7 @@ func (i *ImageTaggerPlugin) GetPluginConfig() map[string]interface{} {
 	cfg := map[string]interface{}{
 		"enable": i.config.Enable,
 	}
-	if i.config.ConsulEnable {
-		cfg["mode"] = "consul"
-		cfg["consul.address"] = i.config.ConsulAddress
-		cfg["consul.service"] = i.config.ConsulService
-	} else {
-		cfg["mode"] = "direct"
-		cfg["url"] = i.config.URL
-	}
+	cfg["mode"] = "direct"
+	cfg["url"] = i.config.URL
 	return cfg
 }

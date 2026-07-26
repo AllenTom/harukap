@@ -2,8 +2,9 @@ package task
 
 import (
 	"fmt"
-	"github.com/rs/xid"
 	"time"
+
+	"github.com/rs/xid"
 )
 
 type Signal string
@@ -12,13 +13,27 @@ const (
 	StatusRunning = iota + 10000
 	StatusDone
 	StatusError
+	StatusPending
+	StatusStopped
+)
+
+// Canonical status strings used by Template JSON.
+const (
+	StatusTextPending  = "Pending"
+	StatusTextRunning  = "Running"
+	StatusTextDone     = "Done"
+	StatusTextError    = "Error"
+	StatusTextStopped  = "Stopped"
 )
 
 var StatusNameMapping map[int]string = map[int]string{
-	StatusRunning: "Running",
-	StatusDone:    "Done",
-	StatusError:   "Error",
+	StatusRunning: StatusTextRunning,
+	StatusDone:    StatusTextDone,
+	StatusError:   StatusTextError,
+	StatusPending: StatusTextPending,
+	StatusStopped: StatusTextStopped,
 }
+
 var (
 	SignalDone = Signal("init")
 )
@@ -87,6 +102,9 @@ func (t *BaseTask) SubTask() []Task {
 }
 func (t *BaseTask) SetStart() {
 	t.StartTime = time.Now()
+	if t.Status == "" || t.Status == StatusTextPending {
+		t.Status = StatusTextRunning
+	}
 }
 func (t *BaseTask) SetEnd() {
 	t.EndTime = time.Now()
@@ -97,13 +115,18 @@ func (t *BaseTask) GetParentTaskId() string {
 func (t *BaseTask) AbortError(err error) error {
 	t.Err = err
 	t.EndTime = time.Now()
-	t.Status = StatusNameMapping[StatusError]
+	t.Status = StatusTextError
 	return err
 }
 func (t *BaseTask) Done() {
-	t.Status = StatusNameMapping[StatusDone]
+	t.Status = StatusTextDone
 	t.EndTime = time.Now()
-	return
+}
+
+// MarkStopped sets status to Stopped and records end time.
+func (t *BaseTask) MarkStopped() {
+	t.Status = StatusTextStopped
+	t.EndTime = time.Now()
 }
 
 func GetStatusText(extraMapping map[int]string, status int) string {
@@ -119,6 +142,9 @@ func GetStatusText(extraMapping map[int]string, status int) string {
 }
 func NewBaseTask(Type string, owner string, status string) *BaseTask {
 	id := xid.New().String()
+	if status == "" {
+		status = StatusTextPending
+	}
 	return &BaseTask{
 		Id:          id,
 		Type:        Type,
@@ -132,14 +158,18 @@ func NewBaseTask(Type string, owner string, status string) *BaseTask {
 
 func NewSubTask(Type string, owner string, status string, parentId string) *BaseTask {
 	id := xid.New().String()
+	if status == "" {
+		status = StatusTextPending
+	}
 	return &BaseTask{
-		Id:          fmt.Sprintf("%s-%s", parentId, id),
-		Type:        Type,
-		Owner:       owner,
-		Status:      status,
-		OnDone:      make(chan Signal),
-		Created:     time.Now(),
-		SubTaskList: []Task{},
+		Id:           fmt.Sprintf("%s-%s", parentId, id),
+		Type:         Type,
+		Owner:        owner,
+		Status:       status,
+		OnDone:       make(chan Signal),
+		Created:      time.Now(),
+		SubTaskList:  []Task{},
+		ParentTaskId: parentId,
 	}
 }
 

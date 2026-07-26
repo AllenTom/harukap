@@ -3,8 +3,10 @@ package task
 import (
 	"errors"
 	"fmt"
-	"github.com/allentom/haruka"
 	"reflect"
+	"time"
+
+	"github.com/allentom/haruka"
 )
 
 type TaskModule struct {
@@ -79,12 +81,19 @@ func (t *TaskModule) SerializerTemplateList() (interface{}, error) {
 	}
 	return list, nil
 }
+func formatTaskTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 func (t *TaskModule) SerializerTemplate(data Task) (interface{}, error) {
 	template := &Template{
 		Id:           data.GetId(),
 		Type:         data.GetType(),
 		Status:       data.GetStatus(),
-		Created:      data.GetCreated().Format("2006-01-02 15:04:05"),
+		Created:      formatTaskTime(data.GetCreated()),
 		ParentTaskId: data.GetParentTaskId(),
 	}
 	if data.Error() != nil {
@@ -109,10 +118,10 @@ func (t *TaskModule) SerializerTemplate(data Task) (interface{}, error) {
 		}
 	}
 	if !data.GetStartTime().IsZero() {
-		template.StartTime = data.GetStartTime().Format("2006-01-02 15:04:05")
+		template.StartTime = formatTaskTime(data.GetStartTime())
 	}
 	if !data.GetEndTime().IsZero() {
-		template.EndTime = data.GetEndTime().Format("2006-01-02 15:04:05")
+		template.EndTime = formatTaskTime(data.GetEndTime())
 		template.Duration = uint(data.GetEndTime().Sub(data.GetStartTime()).Milliseconds())
 	}
 	return template, nil

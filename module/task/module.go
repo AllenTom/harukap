@@ -60,6 +60,8 @@ type Template struct {
 	Created      string      `json:"created"`
 	Err          string      `json:"err,omitempty"`
 	Output       interface{} `json:"output,omitempty"`
+	HasSubTask   bool        `json:"hasSubTask"`
+	SubTaskCount int         `json:"subTaskCount"`
 	SubTask      []*Template `json:"subTask,omitempty"`
 	StartTime    string      `json:"startTime,omitempty"`
 	EndTime      string      `json:"endTime,omitempty"`
@@ -70,10 +72,13 @@ type Template struct {
 func (t *TaskModule) AddConverter(converters ...interface{}) {
 	t.Converter = append(t.Converter, converters...)
 }
+
+// SerializerTemplateList serializes root tasks for list APIs.
+// Nested subtasks are summarized with hasSubTask/subTaskCount, never expanded.
 func (t *TaskModule) SerializerTemplateList() (interface{}, error) {
 	list := make([]interface{}, 0)
 	for _, task := range t.Pool.Tasks {
-		tp, err := t.SerializerTemplate(task)
+		tp, err := t.serializeTemplate(task, false)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +93,13 @@ func formatTaskTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
+// SerializerTemplate serializes a single task for detail APIs,
+// expanding only the direct children (one level).
 func (t *TaskModule) SerializerTemplate(data Task) (interface{}, error) {
+	return t.serializeTemplate(data, true)
+}
+
+func (t *TaskModule) serializeTemplate(data Task, includeDirectChildren bool) (*Template, error) {
 	template := &Template{
 		Id:           data.GetId(),
 		Type:         data.GetType(),
@@ -107,14 +118,17 @@ func (t *TaskModule) SerializerTemplate(data Task) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if data.SubTask() != nil && len(data.SubTask()) > 0 {
-		template.SubTask = make([]*Template, 0)
-		for _, subTask := range data.SubTask() {
-			subTemplate, err := t.SerializerTemplate(subTask)
+	subTasks := data.SubTask()
+	template.SubTaskCount = len(subTasks)
+	template.HasSubTask = template.SubTaskCount > 0
+	if includeDirectChildren && template.HasSubTask {
+		template.SubTask = make([]*Template, 0, len(subTasks))
+		for _, subTask := range subTasks {
+			subTemplate, err := t.serializeTemplate(subTask, false)
 			if err != nil {
 				return nil, err
 			}
-			template.SubTask = append(template.SubTask, subTemplate.(*Template))
+			template.SubTask = append(template.SubTask, subTemplate)
 		}
 	}
 	if !data.GetStartTime().IsZero() {

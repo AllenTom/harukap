@@ -26,8 +26,18 @@ func (m *AuthModule) ParseToken(jwtToken string) (commons.AuthUser, error) {
 	if err != nil {
 		return nil, err
 	}
-	mapClaims := token.Claims.(jwt.MapClaims)
-	isu := mapClaims["iss"].(string)
+	mapClaims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || mapClaims == nil {
+		return nil, errors.New("invalid token claims")
+	}
+	rawIss, ok := mapClaims["iss"]
+	if !ok || rawIss == nil {
+		return nil, errors.New("missing iss claim")
+	}
+	isu, ok := rawIss.(string)
+	if !ok || isu == "" {
+		return nil, errors.New("invalid iss claim")
+	}
 	authPlugin := m.GetAuthPluginByName(isu)
 	if authPlugin == nil {
 		return nil, errors.New("auth plugin not found")

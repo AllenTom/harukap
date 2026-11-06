@@ -75,6 +75,9 @@ type GetCurrentUserResponse struct {
 type UserData struct {
 	Id       int    `json:"id"`
 	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
+	Email    string `json:"email"`
 }
 
 func (c *YouAuthClient) parseResponse(response *resty.Response, data interface{}) error {
@@ -120,14 +123,60 @@ func (c *YouAuthClient) RefreshAccessToken(refreshToken string) (*GenerateTokenR
 	return result, nil
 }
 
+// LoginWithPassword uses YouAuth first-party /user/auth (no OAuth app required).
+// Prefer this for system console / NAS gateway password login.
+func (c *YouAuthClient) LoginWithPassword(username string, password string) (*GenerateTokenResponse, error) {
+	type userAuthResponse struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Token    string `json:"token"`
+			Username string `json:"username"`
+			Id       int    `json:"id"`
+		} `json:"data"`
+		Err  string `json:"err"`
+		Code string `json:"code"`
+	}
+	result := &userAuthResponse{}
+	response, err := c.client.NewRequest().SetBody(map[string]string{
+		"username": username,
+		"password": password,
+	}).SetResult(result).Post(c.BaseUrl + "/user/auth")
+	if err != nil {
+		return nil, err
+	}
+	body := response.Body()
+	var baseBody map[string]interface{}
+	if err = json.Unmarshal(body, &baseBody); err != nil {
+		return nil, err
+	}
+	if err = c.processError(baseBody); err != nil {
+		return nil, err
+	}
+	if err = json.Unmarshal(body, result); err != nil {
+		return nil, err
+	}
+	if result.Data.Token == "" {
+		return nil, errors.New("empty token from /user/auth")
+	}
+	return &GenerateTokenResponse{
+		AccessToken: result.Data.Token,
+		TokenType:   "Bearer",
+	}, nil
+}
+
+// GrantWithPassword is the OAuth password grant (/token). client_id is optional.
+// For first-party console login prefer LoginWithPassword.
 func (c *YouAuthClient) GrantWithPassword(username string, password string) (*GenerateTokenResponse, error) {
-	result := &GenerateTokenResponse{}
-	response, err := c.client.NewRequest().SetFormData(map[string]string{
+	form := map[string]string{
 		"username":   username,
 		"password":   password,
 		"grant_type": "password",
-		"client_id":  c.AppId,
-	}).SetResult(result).Post(c.BaseUrl + "/token")
+	}
+	if c.AppId != "" {
+		form["client_id"] = c.AppId
+	}
+	result := &GenerateTokenResponse{}
+	response, err := c.client.NewRequest().SetFormData(form).SetResult(result).Post(c.BaseUrl + "/token")
 	if err != nil {
 		return nil, err
 	}

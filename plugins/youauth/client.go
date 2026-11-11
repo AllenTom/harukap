@@ -53,21 +53,6 @@ func (c *YouAuthClient) processError(response map[string]interface{}) error {
 	}
 	return nil
 }
-func (c *YouAuthClient) GetAccessToken(authCode string) (*GenerateTokenResponse, error) {
-	result := &GenerateTokenResponse{}
-	response, err := c.client.NewRequest().SetFormData(map[string]string{
-		"code":       authCode,
-		"grant_type": "authorization_code",
-	}).SetResult(result).Post(c.BaseUrl + "/token")
-	if err != nil {
-		return nil, err
-	}
-	err = c.parseResponse(response, result)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
 
 type GetCurrentUserResponse struct {
 	Data UserData `json:"data"`

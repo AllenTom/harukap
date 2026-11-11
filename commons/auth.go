@@ -1,8 +1,7 @@
 package commons
 
 const (
-	AuthTypeWebOauth = "weboauth"
-	AuthTypeBase     = "base"
+	AuthTypeBase = "base"
 )
 const (
 	AuthProviderYouAuth = "youauth"

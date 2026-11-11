@@ -2,32 +2,28 @@ package youauth
 
 import (
 	"fmt"
-	"net/http"
-	"net/url"
 
-	"github.com/allentom/haruka"
 	"github.com/allentom/harukap"
 	"github.com/allentom/harukap/commons"
 	"github.com/allentom/harukap/plugins/nacos"
-	util "github.com/allentom/harukap/utils"
-	"github.com/project-xpolaris/youplustoolkit/youlink"
 )
 
-type OauthPlugin struct {
+// YouAuthPlugin 把服务接到 YouAuth：令牌校验（AuthFromToken）+ 密码登录入口描述（PasswordAuthUrl）。
+// YouAuth 已不再支持 OAuth 应用与授权码登录，这里只有第一方密码登录。
+type YouAuthPlugin struct {
 	Client          *YouAuthClient
 	ConfigPrefix    string
 	AuthFromToken   func(token string) (commons.AuthUser, error)
-	OauthUrl        string
 	PasswordAuthUrl string
 }
 
-func (p *OauthPlugin) getConfig(name string) string {
+func (p *YouAuthPlugin) getConfig(name string) string {
 	if p.ConfigPrefix == "" {
 		return name
 	}
 	return p.ConfigPrefix + "." + name
 }
-func (p *OauthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
+func (p *YouAuthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	if p.ConfigPrefix == "" {
 		p.ConfigPrefix = "auth"
 	}
@@ -71,14 +67,10 @@ func (p *OauthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	if p.Client.BaseUrl == "" {
 		p.Client.BaseUrl = configer.GetString(p.getConfig("url"))
 	}
-	p.Client.AppId = configer.GetString(p.getConfig("appid"))
-	p.Client.Secret = configer.GetString(p.getConfig("secret"))
 	// youlog 配置输出
 	logger := e.LoggerPlugin.Logger.NewScope("YouAuthPlugin")
 	logger.WithFields(map[string]interface{}{
 		"baseUrl": p.Client.BaseUrl,
-		"appid":   p.Client.AppId,
-		"secret":  util.MaskKeepHeadTail(p.Client.Secret, 2, 2),
 		"nacos": map[string]interface{}{
 			"enable": useNacos,
 			"serviceName": func() string {
@@ -107,77 +99,15 @@ func (p *OauthPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	p.Client.Init()
 	return nil
 }
-func (p *OauthPlugin) GetOauthPlugin() *OauthAuthPlugin {
-	return &OauthAuthPlugin{
-		OauthPlugin: p,
-	}
-}
-func (p *OauthPlugin) GetPasswordPlugin() *PasswordAuthPlugin {
+
+func (p *YouAuthPlugin) GetAuthPlugin() *PasswordAuthPlugin {
 	return &PasswordAuthPlugin{
-		OauthPlugin: p,
+		YouAuthPlugin: p,
 	}
-}
-
-func (p *OauthPlugin) GetOauthHandler(onAuth func(code string) (accessToken string, username string, err error)) haruka.RequestHandler {
-	return func(context *haruka.Context) {
-		code := context.GetQueryString("code")
-		accessToken, username, err := onAuth(code)
-		if err != nil {
-			youlink.AbortErrorWithStatus(err, context, http.StatusInternalServerError)
-			return
-		}
-		context.JSON(haruka.JSON{
-			"success": true,
-			"data": haruka.JSON{
-				"accessToken": accessToken,
-				"username":    username,
-			},
-		})
-	}
-}
-
-type OauthAuthPlugin struct {
-	*OauthPlugin
-}
-
-func (p *OauthAuthPlugin) AuthName() string {
-	return "youauth"
-}
-func (p *OauthAuthPlugin) TokenTypeName() string {
-	return "youauth"
-}
-func (p *OauthAuthPlugin) GetAuthUserByToken(token string) (commons.AuthUser, error) {
-	if p.AuthFromToken == nil {
-		return nil, nil
-	}
-	return p.AuthFromToken(token)
-}
-func (p *OauthAuthPlugin) GetAuthInfo() (*commons.AuthInfo, error) {
-	authUrl, err := p.GetOauthUrl()
-	if err != nil {
-		return nil, err
-	}
-	authInfo := &commons.AuthInfo{
-		Name: "YouAuth",
-		Type: commons.AuthTypeWebOauth,
-		Url:  authUrl,
-	}
-	return authInfo, nil
-}
-func (p *OauthAuthPlugin) GetOauthUrl() (string, error) {
-	oauthUrl, err := url.Parse(p.Client.BaseUrl)
-	if err != nil {
-		return "", err
-	}
-	oauthUrl.Path = "/login"
-	q := oauthUrl.Query()
-	q.Add("client_id", p.Client.AppId)
-	oauthUrl.RawQuery = q.Encode()
-	return oauthUrl.String(), nil
 }
 
 type PasswordAuthPlugin struct {
-	*OauthPlugin
+	*YouAuthPlugin
 }
 
 func (p *PasswordAuthPlugin) GetAuthInfo() (*commons.AuthInfo, error) {
@@ -204,12 +134,10 @@ func (p *PasswordAuthPlugin) TokenTypeName() string {
 	return "youauth"
 }
 
-func (p *OauthPlugin) GetPluginConfig() map[string]interface{} {
+func (p *YouAuthPlugin) GetPluginConfig() map[string]interface{} {
 	cfg := map[string]interface{}{}
 	if p.Client != nil {
 		cfg["baseUrl"] = p.Client.BaseUrl
-		cfg["appid"] = p.Client.AppId
-		cfg["secret"] = util.MaskKeepHeadTail(p.Client.Secret, 2, 2)
 	}
 	cfg["prefix"] = p.ConfigPrefix
 	return cfg

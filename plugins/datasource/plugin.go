@@ -31,7 +31,7 @@ func validateDataSourceConfig(config *viper.Viper, prefix string) error {
 }
 
 func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
-	initLogger := e.LoggerPlugin.Logger.NewScope("DatasourcePlugin")
+	initLogger := e.LoggerPlugin.NewScope("DatasourcePlugin")
 	initLogger.Info("initializing datasource plugin")
 
 	configure := e.ConfigProvider.Manager

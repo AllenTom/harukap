@@ -93,7 +93,7 @@ func (p *NacosPlugin) OnInit(engine *harukap.HarukaAppEngine) error {
 	}
 
 	// youlog config output
-	yLogger := engine.LoggerPlugin.Logger.NewScope("NacosPlugin")
+	yLogger := engine.LoggerPlugin.NewScope("NacosPlugin")
 	yLogger.WithFields(map[string]interface{}{
 		"enable":      p.Config.Enable,
 		"server":      p.Config.Server,

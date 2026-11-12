@@ -67,7 +67,7 @@ func (l *LocalStorage) OnInit(e *harukap.HarukaAppEngine) error {
 			Path: e.ConfigProvider.Manager.GetString(baseKeyPath + ".path"),
 		}
 	}
-	logger := e.LoggerPlugin.Logger.NewScope("LocalStorage")
+	logger := e.LoggerPlugin.NewScope("LocalStorage")
 	logger.WithFields(map[string]interface{}{
 		"name": l.ConfigName,
 		"path": l.Config.Path,

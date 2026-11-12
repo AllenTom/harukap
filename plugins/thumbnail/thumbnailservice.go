@@ -9,8 +9,8 @@ import (
 	"mime"
 
 	"github.com/allentom/harukap"
+	"github.com/allentom/harukap/plugins/youlog"
 	"github.com/go-resty/resty/v2"
-	"github.com/project-xpolaris/youplustoolkit/youlog"
 )
 
 var DefaultThumbnailServicePlugin = &ThumbnailServicePlugin{}
@@ -35,7 +35,7 @@ func (p *ThumbnailServicePlugin) SetConfig(config *ThumbnailServiceConfig) {
 	p.config = config
 }
 func (p *ThumbnailServicePlugin) OnInit(e *harukap.HarukaAppEngine) error {
-	logger := e.LoggerPlugin.Logger.NewScope("ThumbnailPlugin")
+	logger := e.LoggerPlugin.NewScope("ThumbnailPlugin")
 	p.Logger = logger
 	logger.Info("Init ThumbnailPlugin")
 	if p.config == nil {

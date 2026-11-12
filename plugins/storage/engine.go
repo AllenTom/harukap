@@ -19,7 +19,7 @@ func (e *Engine) OnInit(engine *harukap.HarukaAppEngine) error {
 		if storageType == "" {
 			continue
 		}
-		logger := engine.LoggerPlugin.Logger.NewScope("StorageEngine")
+		logger := engine.LoggerPlugin.NewScope("StorageEngine")
 		logger.WithFields(map[string]interface{}{
 			"name": name,
 			"type": storageType,

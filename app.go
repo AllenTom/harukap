@@ -9,15 +9,24 @@ import (
 	"github.com/allentom/harukap/config"
 	"github.com/allentom/harukap/plugins/youlog"
 	"github.com/allentom/harukap/rpc"
-	youlog2 "github.com/project-xpolaris/youplustoolkit/youlog"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
+// LoggerPlugin 日志插件抽象，具体实现由 polaris toolkit
+// （youplustoolkit/youlog.Plugin）提供。harukap 只依赖该接口，
+// 不再引用 toolkit，保证依赖方向为 toolkit -> harukap -> haruka。
+type LoggerPlugin interface {
+	OnInit(*config.Provider) error
+	NewScope(name string) *youlog.Scope
+	Application() string
+	Instance() string
+}
+
 type HarukaAppEngine struct {
 	ConfigProvider       *config.Provider
 	Plugins              []HarukaPlugin
-	LoggerPlugin         *youlog.Plugin
+	LoggerPlugin         LoggerPlugin
 	HttpService          *haruka.Engine
 	RPCService           *rpc.HarukaRPCService
 	OnPluginInitComplete func()
@@ -60,16 +69,12 @@ func (e *HarukaAppEngine) RunRPC() {
 }
 func (e *HarukaAppEngine) Run() {
 	if e.LoggerPlugin == nil {
-		e.LoggerPlugin = &youlog.Plugin{}
-		err := e.LoggerPlugin.OnInit(e.ConfigProvider)
-		if err != nil {
-			logrus.Fatal(err)
-		}
+		logrus.Fatal("LoggerPlugin is not set: assign a toolkit youlog.Plugin before Run()")
 	}
-	bootLogger := e.LoggerPlugin.Logger.NewScope("booting")
-	bootLogger.WithFields(youlog2.Fields{
-		"Application": e.LoggerPlugin.Logger.Application,
-		"Instance":    e.LoggerPlugin.Logger.Instance,
+	bootLogger := e.LoggerPlugin.NewScope("booting")
+	bootLogger.WithFields(youlog.Fields{
+		"Application": e.LoggerPlugin.Application(),
+		"Instance":    e.LoggerPlugin.Instance(),
 	}).Info("init logger success")
 	bootLogger.Info("init plugins")
 	for _, plugin := range e.Plugins {

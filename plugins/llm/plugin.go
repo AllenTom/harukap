@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/allentom/harukap"
-	"github.com/project-xpolaris/youplustoolkit/youlog"
+	"github.com/allentom/harukap/plugins/youlog"
 )
 
 // NewPlugin 创建新的LLM插件实例
@@ -34,7 +34,7 @@ func (p *LLMPlugin) SetConfig(config LLMConfig) {
 
 // OnInit 初始化插件
 func (p *LLMPlugin) OnInit(e *harukap.HarukaAppEngine) error {
-	p.logger = e.LoggerPlugin.Logger.NewScope("LLMPlugin")
+	p.logger = e.LoggerPlugin.NewScope("LLMPlugin")
 	p.engine = e
 	p.providers = make(map[string]LLMProvider)
 

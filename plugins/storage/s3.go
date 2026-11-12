@@ -85,7 +85,7 @@ func (c *S3Client) OnInit(e *harukap.HarukaAppEngine) error {
 			Password: e.ConfigProvider.Manager.GetString(baseKeyPath + ".password"),
 		}
 	}
-	logger := e.LoggerPlugin.Logger.NewScope("S3Storage")
+	logger := e.LoggerPlugin.NewScope("S3Storage")
 	logger.WithFields(map[string]interface{}{
 		"name":     c.ConfigName,
 		"region":   c.Config.Region,

@@ -12,7 +12,7 @@ type Plugin struct {
 }
 
 func (p *Plugin) OnInit(e *harukap.HarukaAppEngine) error {
-	initLogger := e.LoggerPlugin.Logger.NewScope("MeiliSearchPlugin")
+	initLogger := e.LoggerPlugin.NewScope("MeiliSearchPlugin")
 	initLogger.Info("init MeiliSearch plugin")
 	configure := e.ConfigProvider.Manager
 	enable := configure.GetBool("meilisearch.enable")

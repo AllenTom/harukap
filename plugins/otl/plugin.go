@@ -17,7 +17,7 @@ func NewOpenTelemetryPlugin(Provider trace.TracerProvider) *OpenTelemetryPlugin 
 }
 
 func (o *OpenTelemetryPlugin) OnInit(e *harukap.HarukaAppEngine) error {
-	logger := e.LoggerPlugin.Logger.NewScope("OpenTelemetryPlugin")
+	logger := e.LoggerPlugin.NewScope("OpenTelemetryPlugin")
 	endpointUrl := e.ConfigProvider.Manager.GetString("otl.exporter.jaeger.endpoint")
 	serviceName := e.ConfigProvider.Manager.GetString("otl.name")
 	logger.WithFields(map[string]interface{}{

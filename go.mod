@@ -17,7 +17,6 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.2.7
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
-	github.com/project-xpolaris/youplustoolkit v0.0.0-20220331083706-51df568cbf83
 	github.com/rozoomcool/go-ollama-sdk v0.0.0-20250620220025-710cf9a2c767
 	github.com/rs/xid v1.6.0
 	github.com/sashabaranov/go-openai v1.41.1

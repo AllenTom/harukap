@@ -13,6 +13,16 @@ type LLMConfig struct {
 	Gemini         *GeminiConfig   `json:"gemini,omitempty"`
 	Default        string          `json:"default"`                   // 默认使用的LLM提供商: "openai", "ollama", "gemini"
 	TemplateConfig *TemplateConfig `json:"template_config,omitempty"` // 模板配置
+
+	// ProvidersFile 全局凭据文件路径。非空且文件存在时，凭据来自该文件，
+	// 服务只保存"用谁、用哪个模型"；为空则完全退回旧的三段式配置。
+	ProvidersFile string `json:"providers_file,omitempty"`
+	// Model 服务级默认模型（所有场景共用），空则用提供商的 default_model
+	Model string `json:"model,omitempty"`
+	// Providers 服务对单个提供商的声明（继承或本地覆盖）
+	Providers map[string]*ProviderOverride `json:"providers,omitempty"`
+	// Scenes 场景级模型覆盖，key 为场景名（如 comic.tagging）
+	Scenes map[string]*SceneSelection `json:"scenes,omitempty"`
 }
 
 // TemplateConfig 模板配置

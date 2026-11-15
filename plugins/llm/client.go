@@ -26,7 +26,22 @@ type ChatOptions struct {
 type LLMClient interface {
 	Chat(messages []Message, options *ChatOptions) (string, error)
 	GenerateText(ctx context.Context, prompt string) (string, error)
+	// GenerateTextForScene 按业务场景生成文本，场景决定模型（见 SceneXxx 常量）。
+	// 传空场景等价于 GenerateText。
+	GenerateTextForScene(ctx context.Context, scene, prompt string) (string, error)
 }
+
+// 业务场景名常量。命名规则：<服务>.<用途>，与前端场景表一一对应。
+const (
+	SceneVideoTitleResolve     = "video.title_resolve"
+	SceneVideoSummary          = "video.summary"
+	ScenePhotoSearchRewrite    = "photo.search_rewrite"
+	ScenePhotoSearchRewriteSig = "photo.search_rewrite_siglip"
+	ScenePhotoCaption          = "photo.caption"
+	SceneMusicSearchRewrite    = "music.search_rewrite"
+	SceneComicTagging          = "comic.tagging"
+	SceneComicSummary          = "comic.summary"
+)
 
 // LLMProvider LLM提供商接口
 type LLMProvider interface {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -23,8 +24,11 @@ type LLMPlugin struct {
 	Config    *LLMConfig
 	logger    *youlog.Scope
 	providers map[string]LLMProvider
-	engine    *harukap.HarukaAppEngine
-	mutex     sync.RWMutex // 保护配置和提供商的并发访问
+	// providerSpecs 是"解析后"的提供商集合（全局凭据 + 本地覆盖 + 旧配置合成）
+	providerSpecs   map[string]*ProviderSpec
+	providerSources map[string]string
+	engine          *harukap.HarukaAppEngine
+	mutex           sync.RWMutex // 保护配置和提供商的并发访问
 }
 
 // SetConfig 设置配置
@@ -41,72 +45,7 @@ func (p *LLMPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 	// 如果没有配置，从配置文件加载
 	if p.Config == nil {
 		p.logger.Info("no config, use default config source")
-		p.Config = &LLMConfig{
-			Enable:  e.ConfigProvider.Manager.GetBool("llm.enable"),
-			Default: e.ConfigProvider.Manager.GetString("llm.default"),
-		}
-
-		// 加载OpenAI配置
-		if e.ConfigProvider.Manager.GetBool("llm.openai.enable") {
-			p.Config.OpenAI = &OpenAIConfig{
-				Enable:  e.ConfigProvider.Manager.GetBool("llm.openai.enable"),
-				APIKey:  e.ConfigProvider.Manager.GetString("llm.openai.api_key"),
-				BaseURL: e.ConfigProvider.Manager.GetString("llm.openai.base_url"),
-				Model:   e.ConfigProvider.Manager.GetString("llm.openai.model"),
-			}
-			if p.Config.OpenAI.Model == "" {
-				p.Config.OpenAI.Model = "gpt-3.5-turbo" // 默认模型
-			}
-		}
-
-		// 加载Ollama配置
-		if e.ConfigProvider.Manager.GetBool("llm.ollama.enable") {
-			p.Config.Ollama = &OllamaConfig{
-				Enable:  e.ConfigProvider.Manager.GetBool("llm.ollama.enable"),
-				BaseURL: e.ConfigProvider.Manager.GetString("llm.ollama.base_url"),
-				Model:   e.ConfigProvider.Manager.GetString("llm.ollama.model"),
-			}
-			if p.Config.Ollama.BaseURL == "" {
-				p.Config.Ollama.BaseURL = "http://localhost:11434" // 默认地址
-			}
-			if p.Config.Ollama.Model == "" {
-				p.Config.Ollama.Model = "llama2" // 默认模型
-			}
-		}
-
-		// 加载Gemini配置
-		if e.ConfigProvider.Manager.GetBool("llm.gemini.enable") {
-			p.Config.Gemini = &GeminiConfig{
-				Enable:   e.ConfigProvider.Manager.GetBool("llm.gemini.enable"),
-				APIKey:   e.ConfigProvider.Manager.GetString("llm.gemini.api_key"),
-				Model:    e.ConfigProvider.Manager.GetString("llm.gemini.model"),
-				Location: e.ConfigProvider.Manager.GetString("llm.gemini.location"),
-				Project:  e.ConfigProvider.Manager.GetString("llm.gemini.project"),
-			}
-			if p.Config.Gemini.Model == "" {
-				p.Config.Gemini.Model = "gemini-pro" // 默认模型
-			}
-		}
-
-		// 设置默认提供商
-		if p.Config.Default == "" {
-			if p.Config.OpenAI != nil && p.Config.OpenAI.Enable {
-				p.Config.Default = "openai"
-			} else if p.Config.Ollama != nil && p.Config.Ollama.Enable {
-				p.Config.Default = "ollama"
-			} else if p.Config.Gemini != nil && p.Config.Gemini.Enable {
-				p.Config.Default = "gemini"
-			}
-		}
-
-		// 初始化模板配置
-		if p.Config.TemplateConfig == nil {
-			p.Config.TemplateConfig = &TemplateConfig{
-				BusinessScenarios: make(map[string]*BusinessScenarioConfig),
-			}
-		}
-		// 加载预定义的业务场景
-		p.Config.TemplateConfig.InitializeWithPredefinedScenarios()
+		p.Config = LoadConfig(e.ConfigProvider.Manager)
 	}
 
 	p.logger.WithFields(map[string]interface{}{
@@ -117,69 +56,78 @@ func (p *LLMPlugin) OnInit(e *harukap.HarukaAppEngine) error {
 		"gemini":  p.Config.Gemini != nil && p.Config.Gemini.Enable,
 	}).Info("LLM plugin config")
 
-	if !p.Config.Enable {
-		p.logger.Info("LLM plugin is disabled")
-		return nil
-	}
-
-	// 初始化各个提供商
+	// 即使总开关关闭也要走一遍：需要把 provider 现状解析出来，
+	// 管理界面才能显示"配了什么、为什么不可用"，而不是一片空白。
 	ctx := context.Background()
 	if err := p.initProviders(ctx); err != nil {
-		return fmt.Errorf("failed to initialize LLM providers: %w", err)
+		if p.Config.Enable {
+			return fmt.Errorf("failed to initialize LLM providers: %w", err)
+		}
+		p.logger.WithFields(map[string]interface{}{"error": err.Error()}).
+			Warn("provider resolution failed while plugin disabled")
 	}
 
 	p.logger.Info("LLM plugin initialized successfully")
 	return nil
 }
 
-// initProviders 初始化各个LLM提供商
+// initProviders 按解析后的 provider specs 重建提供商实例。
+//
+// 解析来源优先级：全局凭据文件 → 服务本地 override → 旧的 openai/ollama/gemini 三段。
+// 这一步同时把 p.providerSpecs 填好，供 /status 与管理接口使用。
 func (p *LLMPlugin) initProviders(ctx context.Context) error {
-	// 初始化OpenAI提供商
-	if p.Config.OpenAI != nil && p.Config.OpenAI.Enable {
-		if p.Config.OpenAI.APIKey == "" {
-			p.logger.Warn("OpenAI API key is empty, skipping OpenAI provider")
-		} else {
-			provider := NewOpenAIProvider(p.Config.OpenAI)
-			p.providers["openai"] = provider
+	p.providers = make(map[string]LLMProvider)
+
+	shared, err := LoadProvidersFile(p.Config.ProvidersFile)
+	if err != nil {
+		// 文件存在但解析失败：必须显式失败，不能静默当成"没配"，
+		// 否则用户会以为凭据生效了，实际在用旧的残留配置。
+		return err
+	}
+	specs, sources := ResolveProviderSpecs(p.Config, shared)
+	p.providerSpecs = specs
+	p.providerSources = sources
+
+	if !p.Config.Enable {
+		p.logger.Info("LLM plugin is disabled")
+		return nil
+	}
+
+	ids := make([]string, 0, len(specs))
+	for id := range specs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	for _, id := range ids {
+		spec := specs[id]
+		ready, reason := spec.Ready()
+		if sources[id] == "missing" {
+			ready, reason = false, "全局未配置该提供商"
+		}
+		if !ready {
 			p.logger.WithFields(map[string]interface{}{
-				"model": p.Config.OpenAI.Model,
-			}).Info("OpenAI provider initialized")
+				"provider": id, "reason": reason,
+			}).Info("provider skipped")
+			continue
 		}
-	}
-
-	// 初始化Ollama提供商
-	if p.Config.Ollama != nil && p.Config.Ollama.Enable {
-		provider := NewOllamaProvider(p.Config.Ollama)
-		p.providers["ollama"] = provider
+		provider, err := BuildProvider(ctx, spec)
+		if err != nil {
+			p.logger.WithFields(map[string]interface{}{
+				"provider": id, "error": err.Error(),
+			}).Error("failed to initialize provider")
+			continue
+		}
+		p.providers[id] = provider
 		p.logger.WithFields(map[string]interface{}{
-			"base_url": p.Config.Ollama.BaseURL,
-			"model":    p.Config.Ollama.Model,
-		}).Info("Ollama provider initialized")
-	}
-
-	// 初始化Gemini提供商
-	if p.Config.Gemini != nil && p.Config.Gemini.Enable {
-		if p.Config.Gemini.APIKey == "" && (p.Config.Gemini.Project == "" || p.Config.Gemini.Location == "") {
-			p.logger.Warn("Gemini API key or Vertex AI credentials are empty, skipping Gemini provider")
-		} else {
-			provider, err := NewGeminiProvider(ctx, p.Config.Gemini)
-			if err != nil {
-				p.logger.WithFields(map[string]interface{}{
-					"error": err.Error(),
-				}).Error("failed to initialize Gemini provider")
-			} else {
-				p.providers["gemini"] = provider
-				p.logger.WithFields(map[string]interface{}{
-					"model": p.Config.Gemini.Model,
-				}).Info("Gemini provider initialized")
-			}
-		}
+			"provider": id, "kind": spec.Kind, "model": spec.DefaultModel,
+			"source": sources[id],
+		}).Info("provider initialized")
 	}
 
 	if len(p.providers) == 0 {
 		return fmt.Errorf("no LLM providers are available")
 	}
-
 	return nil
 }
 
@@ -219,45 +167,133 @@ func (p *LLMPlugin) GetPluginConfig() map[string]interface{} {
 	return config
 }
 
-// GenerateText 生成文本（使用默认提供商）
+// GenerateText 生成文本（使用默认提供商与服务级默认模型）
 func (p *LLMPlugin) GenerateText(ctx context.Context, prompt string) (string, error) {
-	p.mutex.RLock()
-	defaultProvider := p.Config.Default
-	p.mutex.RUnlock()
-	return p.GenerateTextWithProvider(ctx, prompt, defaultProvider)
+	return p.GenerateTextForScene(ctx, "", prompt)
 }
 
-// GenerateTextWithProvider 使用指定提供商生成文本
-func (p *LLMPlugin) GenerateTextWithProvider(ctx context.Context, prompt string, providerName string) (string, error) {
+// GenerateTextForScene 按业务场景生成文本。
+//
+// 模型解析顺序：scene.model → service.model → provider.default_model。
+// 场景为空等价于"用服务级默认"，所以老调用点不改也能工作。
+func (p *LLMPlugin) GenerateTextForScene(ctx context.Context, scene, prompt string) (string, error) {
 	p.mutex.RLock()
 	if !p.Config.Enable {
 		p.mutex.RUnlock()
 		return "", fmt.Errorf("LLM plugin is disabled")
 	}
+	providerName := p.Config.Default
+	model := p.resolveModelLocked(scene)
+	p.mutex.RUnlock()
 
+	if providerName == "" {
+		return "", fmt.Errorf("no default LLM provider configured")
+	}
+	return p.generateWith(ctx, providerName, model, prompt)
+}
+
+// resolveModelLocked 计算某个场景实际使用的模型。调用方需持有读锁。
+func (p *LLMPlugin) resolveModelLocked(scene string) string {
+	model, _ := resolveSceneModel(p.Config, p.providerSpecs, scene)
+	return model
+}
+
+// generateWith 用指定提供商与模型发起请求（模型为空则用该提供商默认）。
+func (p *LLMPlugin) generateWith(ctx context.Context, providerName, model, prompt string) (string, error) {
+	p.mutex.RLock()
 	provider, exists := p.providers[providerName]
 	p.mutex.RUnlock()
 	if !exists {
 		return "", fmt.Errorf("provider %s not found or not enabled", providerName)
 	}
 
-	response, err := provider.GenerateText(ctx, prompt)
+	var (
+		response string
+		err      error
+	)
+	if model != "" {
+		if aware, ok := provider.(ModelAwareProvider); ok {
+			response, err = aware.GenerateTextWithModel(ctx, model, prompt)
+		} else {
+			response, err = provider.GenerateText(ctx, prompt)
+		}
+	} else {
+		response, err = provider.GenerateText(ctx, prompt)
+	}
+
 	if err != nil {
 		p.logger.WithFields(map[string]interface{}{
-			"error":    err.Error(),
-			"provider": providerName,
-			"prompt":   prompt[:min(100, len(prompt))], // 记录前100个字符
+			"error": err.Error(), "provider": providerName, "model": model,
+			"prompt": prompt[:min(100, len(prompt))],
 		}).Error("failed to generate text")
 		return "", err
 	}
 
 	p.logger.WithFields(map[string]interface{}{
-		"provider":        providerName,
-		"prompt_length":   len(prompt),
-		"response_length": len(response),
+		"provider": providerName, "model": model,
+		"prompt_length": len(prompt), "response_length": len(response),
 	}).Debug("text generated successfully")
-
 	return response, nil
+}
+
+// GetResolvedProviders 返回提供商现状（含来源与不可用原因），供管理接口展示。
+func (p *LLMPlugin) GetResolvedProviders() []ResolvedProvider {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return DescribeProviders(p.providerSpecs, p.providerSources)
+}
+
+// GetResolvedScenes 返回场景 → 模型现状（含来源），供设置页展示。
+func (p *LLMPlugin) GetResolvedScenes() []SceneInfo {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return DescribeScenes(p.Config, p.providerSpecs)
+}
+
+// ResolveSceneModel 计算指定场景最终使用的模型与来源。
+func (p *LLMPlugin) ResolveSceneModel(scene string) (string, string) {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return resolveSceneModel(p.Config, p.providerSpecs, scene)
+}
+
+// ListProviderModels 读取某个提供商实际可用的模型；先问上游，失败时退回配置的候选。
+func (p *LLMPlugin) ListProviderModels(ctx context.Context, providerID string) ([]ModelSpec, string, error) {
+	p.mutex.RLock()
+	provider, ok := p.providers[providerID]
+	spec := p.providerSpecs[providerID]
+	p.mutex.RUnlock()
+
+	if lister, ok2 := provider.(ModelLister); ok2 {
+		models, err := lister.ListModels(ctx)
+		if err == nil && len(models) > 0 {
+			return models, "upstream", nil
+		}
+		if spec != nil && len(spec.Models) > 0 {
+			return spec.Models, "config", nil
+		}
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	if spec != nil && len(spec.Models) > 0 {
+		return spec.Models, "config", nil
+	}
+	if !ok {
+		return nil, "", fmt.Errorf("provider %s 不可用（未初始化）", providerID)
+	}
+	return nil, "", fmt.Errorf("provider %s 不支持模型列举", providerID)
+}
+
+// GenerateTextWithProvider 使用指定提供商生成文本（模型用该提供商默认）
+func (p *LLMPlugin) GenerateTextWithProvider(ctx context.Context, prompt string, providerName string) (string, error) {
+	p.mutex.RLock()
+	enabled := p.Config.Enable
+	p.mutex.RUnlock()
+	if !enabled {
+		return "", fmt.Errorf("LLM plugin is disabled")
+	}
+	return p.generateWith(ctx, providerName, "", prompt)
 }
 
 // GetAvailableProviders 获取可用的提供商列表
@@ -327,6 +363,11 @@ func (c *llmClient) Chat(messages []Message, options *ChatOptions) (string, erro
 // GenerateText 生成文本方法
 func (c *llmClient) GenerateText(ctx context.Context, prompt string) (string, error) {
 	return c.plugin.GenerateText(ctx, prompt)
+}
+
+// GenerateTextForScene 按场景生成文本方法
+func (c *llmClient) GenerateTextForScene(ctx context.Context, scene, prompt string) (string, error) {
+	return c.plugin.GenerateTextForScene(ctx, scene, prompt)
 }
 
 // determineProvider 根据模型名称确定提供商
@@ -405,6 +446,34 @@ func (p *LLMPlugin) UpdateConfigWithPersistence(newConfig *LLMConfig, persist bo
 func (p *LLMPlugin) validateConfig(config *LLMConfig) error {
 	if !config.Enable {
 		return nil // 如果禁用，则无需验证提供商配置
+	}
+
+	// 新形态：凭据来自共享文件或本地 provider 声明。校验的是"解析后至少有一个可用"，
+	// 而不是"三段式里有一段开着"——后者在共享凭据模式下恒不成立。
+	if config.ProvidersFile != "" || len(config.Providers) > 0 {
+		shared, err := LoadProvidersFile(config.ProvidersFile)
+		if err != nil {
+			return err
+		}
+		specs, sources := ResolveProviderSpecs(config, shared)
+		readyCount := 0
+		for id, spec := range specs {
+			if sources[id] == "missing" {
+				continue
+			}
+			if ok, _ := spec.Ready(); ok {
+				readyCount++
+			}
+		}
+		if readyCount == 0 {
+			return fmt.Errorf("no usable LLM provider: 检查全局凭据文件或本地 provider 配置")
+		}
+		if config.Default != "" {
+			if _, ok := specs[config.Default]; !ok {
+				return fmt.Errorf("default provider '%s' is not defined", config.Default)
+			}
+		}
+		return nil
 	}
 
 	hasValidProvider := false
@@ -497,64 +566,8 @@ func (p *LLMPlugin) ReloadConfigWithPersistence(persist bool) error {
 		return fmt.Errorf("engine is not initialized")
 	}
 
-	// 从配置文件重新加载配置
-	newConfig := &LLMConfig{
-		Enable:  p.engine.ConfigProvider.Manager.GetBool("llm.enable"),
-		Default: p.engine.ConfigProvider.Manager.GetString("llm.default"),
-	}
-
-	// 加载OpenAI配置
-	if p.engine.ConfigProvider.Manager.GetBool("llm.openai.enable") {
-		newConfig.OpenAI = &OpenAIConfig{
-			Enable:  p.engine.ConfigProvider.Manager.GetBool("llm.openai.enable"),
-			APIKey:  p.engine.ConfigProvider.Manager.GetString("llm.openai.api_key"),
-			BaseURL: p.engine.ConfigProvider.Manager.GetString("llm.openai.base_url"),
-			Model:   p.engine.ConfigProvider.Manager.GetString("llm.openai.model"),
-		}
-		if newConfig.OpenAI.Model == "" {
-			newConfig.OpenAI.Model = "gpt-3.5-turbo"
-		}
-	}
-
-	// 加载Ollama配置
-	if p.engine.ConfigProvider.Manager.GetBool("llm.ollama.enable") {
-		newConfig.Ollama = &OllamaConfig{
-			Enable:  p.engine.ConfigProvider.Manager.GetBool("llm.ollama.enable"),
-			BaseURL: p.engine.ConfigProvider.Manager.GetString("llm.ollama.base_url"),
-			Model:   p.engine.ConfigProvider.Manager.GetString("llm.ollama.model"),
-		}
-		if newConfig.Ollama.BaseURL == "" {
-			newConfig.Ollama.BaseURL = "http://localhost:11434"
-		}
-		if newConfig.Ollama.Model == "" {
-			newConfig.Ollama.Model = "llama2"
-		}
-	}
-
-	// 加载Gemini配置
-	if p.engine.ConfigProvider.Manager.GetBool("llm.gemini.enable") {
-		newConfig.Gemini = &GeminiConfig{
-			Enable:   p.engine.ConfigProvider.Manager.GetBool("llm.gemini.enable"),
-			APIKey:   p.engine.ConfigProvider.Manager.GetString("llm.gemini.api_key"),
-			Model:    p.engine.ConfigProvider.Manager.GetString("llm.gemini.model"),
-			Location: p.engine.ConfigProvider.Manager.GetString("llm.gemini.location"),
-			Project:  p.engine.ConfigProvider.Manager.GetString("llm.gemini.project"),
-		}
-		if newConfig.Gemini.Model == "" {
-			newConfig.Gemini.Model = "gemini-pro"
-		}
-	}
-
-	// 设置默认提供商
-	if newConfig.Default == "" {
-		if newConfig.OpenAI != nil && newConfig.OpenAI.Enable {
-			newConfig.Default = "openai"
-		} else if newConfig.Ollama != nil && newConfig.Ollama.Enable {
-			newConfig.Default = "ollama"
-		} else if newConfig.Gemini != nil && newConfig.Gemini.Enable {
-			newConfig.Default = "gemini"
-		}
-	}
+	// 从配置文件重新加载配置（与 OnInit 共用同一处加载逻辑）
+	newConfig := LoadConfig(p.engine.ConfigProvider.Manager)
 
 	return p.UpdateConfigWithPersistence(newConfig, persist)
 }
@@ -700,6 +713,10 @@ func (p *LLMPlugin) saveConfigToFile() error {
 
 	manager := p.engine.ConfigProvider.Manager
 
+	// 共享凭据模式下，本地文件只保存"用谁、用哪个模型"，绝不把继承来的凭据写回去。
+	// 这是"凭据只有一份"的硬性保证——一旦写回，就会退化成四份并用。
+	sharedMode := strings.TrimSpace(p.Config.ProvidersFile) != ""
+
 	// 记录保存前的配置状态
 	p.logger.WithFields(map[string]interface{}{
 		"enable":  p.Config.Enable,
@@ -709,63 +726,72 @@ func (p *LLMPlugin) saveConfigToFile() error {
 	// 保存LLM基本配置
 	manager.Set("llm.enable", p.Config.Enable)
 	manager.Set("llm.default", p.Config.Default)
-
-	// 保存OpenAI配置
-	if p.Config.OpenAI != nil {
-		manager.Set("llm.openai.enable", p.Config.OpenAI.Enable)
-		manager.Set("llm.openai.api_key", p.Config.OpenAI.APIKey)
-		manager.Set("llm.openai.base_url", p.Config.OpenAI.BaseURL)
-		manager.Set("llm.openai.model", p.Config.OpenAI.Model)
-		p.logger.WithFields(map[string]interface{}{
-			"enable": p.Config.OpenAI.Enable,
-			"model":  p.Config.OpenAI.Model,
-		}).Info("Saved OpenAI config")
-	} else {
-		// 清除OpenAI配置
-		manager.Set("llm.openai.enable", false)
-		manager.Set("llm.openai.api_key", "")
-		manager.Set("llm.openai.base_url", "")
-		manager.Set("llm.openai.model", "")
-		p.logger.Info("Cleared OpenAI config")
+	manager.Set("llm.provider", p.Config.Default)
+	if sharedMode {
+		manager.Set("llm.providers_file", p.Config.ProvidersFile)
+		manager.Set("llm.model", p.Config.Model)
+		p.writeSelectionKeys(manager)
 	}
 
-	// 保存Ollama配置
-	if p.Config.Ollama != nil {
-		manager.Set("llm.ollama.enable", p.Config.Ollama.Enable)
-		manager.Set("llm.ollama.base_url", p.Config.Ollama.BaseURL)
-		manager.Set("llm.ollama.model", p.Config.Ollama.Model)
-		p.logger.WithFields(map[string]interface{}{
-			"enable":   p.Config.Ollama.Enable,
-			"base_url": p.Config.Ollama.BaseURL,
-			"model":    p.Config.Ollama.Model,
-		}).Info("Saved Ollama config")
-	} else {
-		// 清除Ollama配置
-		manager.Set("llm.ollama.enable", false)
-		manager.Set("llm.ollama.base_url", "")
-		manager.Set("llm.ollama.model", "")
-		p.logger.Info("Cleared Ollama config")
-	}
+	// 旧模式才写凭据。共享模式下凭据的唯一来源是 providers 文件。
+	if !sharedMode {
+		// 保存OpenAI配置
+		if p.Config.OpenAI != nil {
+			manager.Set("llm.openai.enable", p.Config.OpenAI.Enable)
+			manager.Set("llm.openai.api_key", p.Config.OpenAI.APIKey)
+			manager.Set("llm.openai.base_url", p.Config.OpenAI.BaseURL)
+			manager.Set("llm.openai.model", p.Config.OpenAI.Model)
+			p.logger.WithFields(map[string]interface{}{
+				"enable": p.Config.OpenAI.Enable,
+				"model":  p.Config.OpenAI.Model,
+			}).Info("Saved OpenAI config")
+		} else {
+			// 清除OpenAI配置
+			manager.Set("llm.openai.enable", false)
+			manager.Set("llm.openai.api_key", "")
+			manager.Set("llm.openai.base_url", "")
+			manager.Set("llm.openai.model", "")
+			p.logger.Info("Cleared OpenAI config")
+		}
 
-	// 保存Gemini配置
-	if p.Config.Gemini != nil {
-		manager.Set("llm.gemini.enable", p.Config.Gemini.Enable)
-		manager.Set("llm.gemini.api_key", p.Config.Gemini.APIKey)
-		manager.Set("llm.gemini.model", p.Config.Gemini.Model)
-		manager.Set("llm.gemini.location", p.Config.Gemini.Location)
-		manager.Set("llm.gemini.project", p.Config.Gemini.Project)
-		p.logger.WithFields(map[string]interface{}{
-			"enable": p.Config.Gemini.Enable,
-			"model":  p.Config.Gemini.Model,
-		}).Info("Saved Gemini config")
-	} else {
-		// 清除Gemini配置
-		manager.Set("llm.gemini.enable", false)
-		manager.Set("llm.gemini.api_key", "")
-		manager.Set("llm.gemini.model", "")
-		manager.Set("llm.gemini.location", "")
-		manager.Set("llm.gemini.project", "")
-		p.logger.Info("Cleared Gemini config")
+		// 保存Ollama配置
+		if p.Config.Ollama != nil {
+			manager.Set("llm.ollama.enable", p.Config.Ollama.Enable)
+			manager.Set("llm.ollama.base_url", p.Config.Ollama.BaseURL)
+			manager.Set("llm.ollama.model", p.Config.Ollama.Model)
+			p.logger.WithFields(map[string]interface{}{
+				"enable":   p.Config.Ollama.Enable,
+				"base_url": p.Config.Ollama.BaseURL,
+				"model":    p.Config.Ollama.Model,
+			}).Info("Saved Ollama config")
+		} else {
+			// 清除Ollama配置
+			manager.Set("llm.ollama.enable", false)
+			manager.Set("llm.ollama.base_url", "")
+			manager.Set("llm.ollama.model", "")
+			p.logger.Info("Cleared Ollama config")
+		}
+
+		// 保存Gemini配置
+		if p.Config.Gemini != nil {
+			manager.Set("llm.gemini.enable", p.Config.Gemini.Enable)
+			manager.Set("llm.gemini.api_key", p.Config.Gemini.APIKey)
+			manager.Set("llm.gemini.model", p.Config.Gemini.Model)
+			manager.Set("llm.gemini.location", p.Config.Gemini.Location)
+			manager.Set("llm.gemini.project", p.Config.Gemini.Project)
+			p.logger.WithFields(map[string]interface{}{
+				"enable": p.Config.Gemini.Enable,
+				"model":  p.Config.Gemini.Model,
+			}).Info("Saved Gemini config")
+		} else {
+			// 清除Gemini配置
+			manager.Set("llm.gemini.enable", false)
+			manager.Set("llm.gemini.api_key", "")
+			manager.Set("llm.gemini.model", "")
+			manager.Set("llm.gemini.location", "")
+			manager.Set("llm.gemini.project", "")
+			p.logger.Info("Cleared Gemini config")
+		}
 	}
 
 	// 尝试获取配置文件路径

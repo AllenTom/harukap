@@ -250,16 +250,7 @@ func (p *LLMPlugin) ApplyUpdate(req *UpdateRequest) error {
 	if req.ProvidersFile != nil {
 		next.ProvidersFile = strings.TrimSpace(*req.ProvidersFile)
 	}
-	if req.MaxOutputTokens != nil {
-		next.MaxOutputTokens = *req.MaxOutputTokens
-	}
-	if req.CallTimeoutSeconds != nil {
-		next.CallTimeoutSeconds = *req.CallTimeoutSeconds
-	}
-	if req.DailyCallLimit != nil {
-		next.DailyCallLimit = *req.DailyCallLimit
-	}
-
+	applyGuardUpdate(&next, req)
 	// 旧三段式：空 api_key 视为"不修改"，避免设置页不填 key 就把已有 key 清掉
 	if req.OpenAI != nil {
 		apiKey := req.OpenAI.APIKey
@@ -288,6 +279,23 @@ func (p *LLMPlugin) ApplyUpdate(req *UpdateRequest) error {
 	}
 
 	return p.UpdateConfigWithPersistence(&next, req.Persist)
+}
+
+// applyGuardUpdate 合并成本护栏三个字段。抽出来是为了能单独测——
+// 走 ApplyUpdate 全链路会触发 provider 重建，单测里没有 logger 会炸。
+func applyGuardUpdate(next *LLMConfig, req *UpdateRequest) {
+	if req == nil || next == nil {
+		return
+	}
+	if req.MaxOutputTokens != nil {
+		next.MaxOutputTokens = *req.MaxOutputTokens
+	}
+	if req.CallTimeoutSeconds != nil {
+		next.CallTimeoutSeconds = *req.CallTimeoutSeconds
+	}
+	if req.DailyCallLimit != nil {
+		next.DailyCallLimit = *req.DailyCallLimit
+	}
 }
 
 // sortStrings 小工具，避免为一个排序引入额外依赖。

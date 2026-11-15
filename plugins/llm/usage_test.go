@@ -130,3 +130,49 @@ func (f *fakeProvider) GenerateText(ctx context.Context, prompt string) (string,
 }
 
 func (f *fakeProvider) GetProviderName() string { return "fake" }
+
+// 护栏配置必须能通过 PUT /llm/config 改，否则用户只能改 yml 重启。
+func TestApplyGuardUpdate(t *testing.T) {
+	cfg := &LLMConfig{}
+	limits, timeout, maxTokens := 3000, 45, 512
+
+	applyGuardUpdate(cfg, &UpdateRequest{
+		DailyCallLimit:     &limits,
+		CallTimeoutSeconds: &timeout,
+		MaxOutputTokens:    &maxTokens,
+	})
+
+	if got := cfg.EffectiveDailyCallLimit(); got != 3000 {
+		t.Fatalf("daily_call_limit 未生效: %d", got)
+	}
+	if got := cfg.EffectiveCallTimeout(); got != 45*time.Second {
+		t.Fatalf("call_timeout 未生效: %v", got)
+	}
+	if got := cfg.EffectiveMaxOutputTokens(); got != 512 {
+		t.Fatalf("max_output_tokens 未生效: %d", got)
+	}
+}
+
+// 缺省即不改：只提交 enable 时，三个护栏值必须保持原样。
+func TestApplyGuardUpdateLeavesOmittedFields(t *testing.T) {
+	cfg := &LLMConfig{Enable: true, DailyCallLimit: 777}
+	enable := false
+	applyGuardUpdate(cfg, &UpdateRequest{Enable: &enable})
+	if cfg.DailyCallLimit != 777 {
+		t.Fatalf("未提交 daily_call_limit 却被改成了 %d", cfg.DailyCallLimit)
+	}
+}
+
+// 默认值兜底：没配任何护栏时，也要有输出上限与超时。
+func TestEffectiveGuardDefaults(t *testing.T) {
+	var c *LLMConfig
+	if c.EffectiveMaxOutputTokens() != DefaultMaxOutputTokens {
+		t.Fatal("nil 配置应回落到默认输出上限")
+	}
+	if c.EffectiveCallTimeout() != DefaultCallTimeoutSecs*time.Second {
+		t.Fatal("nil 配置应回落到默认超时")
+	}
+	if c.EffectiveDailyCallLimit() != DefaultDailyCallLimit {
+		t.Fatal("nil 配置应回落到默认日配额")
+	}
+}

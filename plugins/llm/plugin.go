@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/allentom/harukap"
 	"github.com/allentom/harukap/plugins/youlog"
@@ -16,6 +17,7 @@ import (
 func NewPlugin() *LLMPlugin {
 	return &LLMPlugin{
 		providers: make(map[string]LLMProvider),
+		usage:     newUsageTracker(),
 	}
 }
 
@@ -27,8 +29,10 @@ type LLMPlugin struct {
 	// providerSpecs 是"解析后"的提供商集合（全局凭据 + 本地覆盖 + 旧配置合成）
 	providerSpecs   map[string]*ProviderSpec
 	providerSources map[string]string
-	engine          *harukap.HarukaAppEngine
-	mutex           sync.RWMutex // 保护配置和提供商的并发访问
+	// usage 是成本护栏的计数器：每日调用次数与配额（见 usage.go）
+	usage  *usageTracker
+	engine *harukap.HarukaAppEngine
+	mutex  sync.RWMutex // 保护配置和提供商的并发访问
 }
 
 // SetConfig 设置配置
@@ -101,6 +105,12 @@ func (p *LLMPlugin) initProviders(ctx context.Context) error {
 
 	for _, id := range ids {
 		spec := specs[id]
+		// 输出上限兜底：提供商自己没配就用插件级默认。
+		// 没有这一层的话，OpenAI/Gemini/Ollama 都会按模型上下文上限生成，
+		// 一次"跑飞"就能把额度烧穿。
+		if spec.MaxTokens <= 0 {
+			spec.MaxTokens = p.Config.EffectiveMaxOutputTokens()
+		}
 		ready, reason := spec.Ready()
 		if sources[id] == "missing" {
 			ready, reason = false, "全局未配置该提供商"
@@ -189,7 +199,7 @@ func (p *LLMPlugin) GenerateTextForScene(ctx context.Context, scene, prompt stri
 	if providerName == "" {
 		return "", fmt.Errorf("no default LLM provider configured")
 	}
-	return p.generateWith(ctx, providerName, model, prompt)
+	return p.generateWithScene(ctx, scene, providerName, model, prompt)
 }
 
 // resolveModelLocked 计算某个场景实际使用的模型。调用方需持有读锁。
@@ -200,11 +210,49 @@ func (p *LLMPlugin) resolveModelLocked(scene string) string {
 
 // generateWith 用指定提供商与模型发起请求（模型为空则用该提供商默认）。
 func (p *LLMPlugin) generateWith(ctx context.Context, providerName, model, prompt string) (string, error) {
+	return p.generateWithScene(ctx, "", providerName, model, prompt)
+}
+
+// generateWithScene 是所有上游调用的唯一出口，成本护栏就设在这里：
+//   - 配额：每日调用次数超限直接拒绝（usage.go）
+//   - 超时：调用方没给 deadline 时兜底，避免 provider 挂起把批量任务卡死
+//   - 计量：成功与失败都记（上游报错通常同样计费）
+//
+// scene 只用于用量分桶，不影响模型选择（模型在 GenerateTextForScene 里已解析好）。
+func (p *LLMPlugin) generateWithScene(ctx context.Context, scene, providerName, model, prompt string) (string, error) {
 	p.mutex.RLock()
 	provider, exists := p.providers[providerName]
+	limit := 0
+	var timeout time.Duration
+	if p.Config != nil {
+		limit = p.Config.EffectiveDailyCallLimit()
+		timeout = p.Config.EffectiveCallTimeout()
+	}
 	p.mutex.RUnlock()
 	if !exists {
 		return "", fmt.Errorf("provider %s not found or not enabled", providerName)
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 先占位再请求：并发时"请求成功后再累加"会让 N 个请求同时放行，上限形同虚设。
+	if p.usage != nil {
+		if err := p.usage.acquire(limit); err != nil {
+			if p.logger != nil {
+				p.logger.WithFields(map[string]interface{}{
+					"provider": providerName, "model": model, "scene": scene,
+				}).Warn(err.Error())
+			}
+			return "", err
+		}
+	}
+
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	var (
@@ -221,19 +269,37 @@ func (p *LLMPlugin) generateWith(ctx context.Context, providerName, model, promp
 		response, err = provider.GenerateText(ctx, prompt)
 	}
 
+	if p.usage != nil {
+		p.usage.record(scene, providerName, err == nil)
+	}
+
 	if err != nil {
-		p.logger.WithFields(map[string]interface{}{
-			"error": err.Error(), "provider": providerName, "model": model,
-			"prompt": prompt[:min(100, len(prompt))],
-		}).Error("failed to generate text")
+		if p.logger != nil {
+			p.logger.WithFields(map[string]interface{}{
+				"error": err.Error(), "provider": providerName, "model": model,
+				"prompt": promptPrefix(prompt, 100),
+			}).Error("failed to generate text")
+		}
 		return "", err
 	}
 
-	p.logger.WithFields(map[string]interface{}{
-		"provider": providerName, "model": model,
-		"prompt_length": len(prompt), "response_length": len(response),
-	}).Debug("text generated successfully")
+	if p.logger != nil {
+		p.logger.WithFields(map[string]interface{}{
+			"provider": providerName, "model": model,
+			"prompt_length": len(prompt), "response_length": len(response),
+		}).Debug("text generated successfully")
+	}
 	return response, nil
+}
+
+// promptPrefix 按字符（不是字节）截断，避免把多字节字符切成半个，
+// 日志里出现乱码反而干扰排查。
+func promptPrefix(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // GetResolvedProviders 返回提供商现状（含来源与不可用原因），供管理接口展示。

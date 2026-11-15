@@ -44,7 +44,30 @@ func (p *LLMPlugin) StatusPayload() map[string]any {
 	payload["providers_file"] = p.Config.ProvidersFile
 	payload["provider_details"] = DescribeProviders(p.providerSpecs, p.providerSources)
 	payload["scenes"] = DescribeScenes(p.Config, p.providerSpecs)
+	payload["guard"] = p.guardPayload()
+	payload["usage"] = p.usageSnapshot()
 	return payload
+}
+
+// guardPayload 暴露成本护栏的生效值，让前端能显示"这次是按什么规则在限制"。
+func (p *LLMPlugin) guardPayload() map[string]any {
+	return map[string]any{
+		"max_output_tokens":    p.Config.EffectiveMaxOutputTokens(),
+		"call_timeout_seconds": int(p.Config.EffectiveCallTimeout().Seconds()),
+		"daily_call_limit":     p.Config.EffectiveDailyCallLimit(),
+	}
+}
+
+// usageSnapshot 今日用量。p.Config 为 nil 时（未初始化）也要能返回，避免前端空表。
+func (p *LLMPlugin) usageSnapshot() UsageSnapshot {
+	if p.usage == nil {
+		return UsageSnapshot{Day: today(), Remaining: -1}
+	}
+	limit := 0
+	if p.Config != nil {
+		limit = p.Config.EffectiveDailyCallLimit()
+	}
+	return p.usage.snapshot(limit)
 }
 
 // ConfigPayload 构造 /llm/config 的响应体。
@@ -110,6 +133,8 @@ func (p *LLMPlugin) ConfigPayload() map[string]any {
 
 	out["provider_details"] = DescribeProviders(p.providerSpecs, p.providerSources)
 	out["scene_details"] = DescribeScenes(cfg, p.providerSpecs)
+	out["guard"] = p.guardPayload()
+	out["usage"] = p.usageSnapshot()
 
 	// 旧三段式，保持老前端能读
 	if cfg.OpenAI != nil {
@@ -145,6 +170,11 @@ type UpdateRequest struct {
 	ProvidersFile *string                      `json:"providers_file,omitempty"`
 	Providers     map[string]*ProviderOverride `json:"providers,omitempty"`
 	Scenes        map[string]*SceneSelection   `json:"scenes,omitempty"`
+
+	// 成本护栏（缺省即不改）
+	MaxOutputTokens    *int `json:"max_output_tokens,omitempty"`
+	CallTimeoutSeconds *int `json:"call_timeout_seconds,omitempty"`
+	DailyCallLimit     *int `json:"daily_call_limit,omitempty"`
 
 	// 旧三段式（兼容老前端）
 	OpenAI *OpenAIConfig `json:"openai,omitempty"`
@@ -219,6 +249,15 @@ func (p *LLMPlugin) ApplyUpdate(req *UpdateRequest) error {
 	}
 	if req.ProvidersFile != nil {
 		next.ProvidersFile = strings.TrimSpace(*req.ProvidersFile)
+	}
+	if req.MaxOutputTokens != nil {
+		next.MaxOutputTokens = *req.MaxOutputTokens
+	}
+	if req.CallTimeoutSeconds != nil {
+		next.CallTimeoutSeconds = *req.CallTimeoutSeconds
+	}
+	if req.DailyCallLimit != nil {
+		next.DailyCallLimit = *req.DailyCallLimit
 	}
 
 	// 旧三段式：空 api_key 视为"不修改"，避免设置页不填 key 就把已有 key 清掉

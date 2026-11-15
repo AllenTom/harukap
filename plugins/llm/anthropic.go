@@ -26,12 +26,13 @@ import (
 const anthropicVersion = "2023-06-01"
 
 type anthropicProvider struct {
-	id      string
-	model   string
-	baseURL string
-	apiKey  string
-	headers map[string]string
-	client  *http.Client
+	id        string
+	model     string
+	baseURL   string
+	apiKey    string
+	headers   map[string]string
+	maxTokens int
+	client    *http.Client
 }
 
 func newAnthropicProvider(spec *ProviderSpec) *anthropicProvider {
@@ -44,12 +45,13 @@ func newAnthropicProvider(spec *ProviderSpec) *anthropicProvider {
 		timeout = time.Duration(spec.Timeout) * time.Second
 	}
 	return &anthropicProvider{
-		id:      spec.ID,
-		model:   spec.DefaultModel,
-		baseURL: base,
-		apiKey:  spec.APIKey,
-		headers: spec.Headers,
-		client:  &http.Client{Timeout: timeout},
+		id:        spec.ID,
+		model:     spec.DefaultModel,
+		baseURL:   base,
+		apiKey:    spec.APIKey,
+		headers:   spec.Headers,
+		maxTokens: spec.MaxTokens,
+		client:    &http.Client{Timeout: timeout},
 	}
 }
 
@@ -117,9 +119,15 @@ func (p *anthropicProvider) GenerateTextWithModel(ctx context.Context, model, pr
 	if model == "" {
 		return "", fmt.Errorf("%s: 未指定模型", p.id)
 	}
+	// max_tokens 是 Anthropic 的必填项，不再写死 4096：
+	// 业务场景都是短回答，写死大值只会让跑飞的模型多烧钱。
+	maxTokens := p.maxTokens
+	if maxTokens <= 0 {
+		maxTokens = DefaultMaxOutputTokens
+	}
 	body := map[string]any{
 		"model":      model,
-		"max_tokens": 4096,
+		"max_tokens": maxTokens,
 		"messages": []map[string]any{
 			{"role": "user", "content": prompt},
 		},

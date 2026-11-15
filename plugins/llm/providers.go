@@ -1,14 +1,15 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	"github.com/rozoomcool/go-ollama-sdk"
 	"github.com/sashabaranov/go-openai"
 	"google.golang.org/genai"
 )
@@ -64,6 +65,9 @@ type ProviderSpec struct {
 	Location string            `json:"location,omitempty" yaml:"location,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	Timeout  int               `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	// MaxTokens 单次生成的最大输出 token。0 表示用插件级默认（见 LLMConfig.EffectiveMaxOutputTokens）。
+	// 这里不设上限时模型会一路吐到上下文尽头，单次成本完全不可控。
+	MaxTokens int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 	// DefaultModel 该提供商未指定模型时使用
 	DefaultModel string      `json:"default_model,omitempty" yaml:"default_model,omitempty"`
 	Models       []ModelSpec `json:"models,omitempty" yaml:"models,omitempty"`
@@ -180,10 +184,11 @@ func BuildProvider(ctx context.Context, spec *ProviderSpec) (LLMProvider, error)
 // ---------------------------------------------------------------- OpenAI 兼容
 
 type openAICompatProvider struct {
-	id     string
-	model  string
-	models []ModelSpec
-	client *openai.Client
+	id        string
+	model     string
+	models    []ModelSpec
+	maxTokens int
+	client    *openai.Client
 }
 
 func newOpenAICompatProvider(spec *ProviderSpec) *openAICompatProvider {
@@ -205,10 +210,11 @@ func newOpenAICompatProvider(spec *ProviderSpec) *openAICompatProvider {
 		cfg.HTTPClient = &http.Client{Timeout: timeout}
 	}
 	return &openAICompatProvider{
-		id:     spec.ID,
-		model:  spec.DefaultModel,
-		models: spec.Models,
-		client: openai.NewClientWithConfig(cfg),
+		id:        spec.ID,
+		model:     spec.DefaultModel,
+		models:    spec.Models,
+		maxTokens: spec.MaxTokens,
+		client:    openai.NewClientWithConfig(cfg),
 	}
 }
 
@@ -223,8 +229,9 @@ func (p *openAICompatProvider) GenerateTextWithModel(ctx context.Context, model,
 		model = p.model
 	}
 	resp, err := p.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    model,
-		Messages: []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: prompt}},
+		Model:     model,
+		Messages:  []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleUser, Content: prompt}},
+		MaxTokens: p.maxTokens,
 	})
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.id, err)
@@ -251,11 +258,11 @@ func (p *openAICompatProvider) ListModels(ctx context.Context) ([]ModelSpec, err
 // ---------------------------------------------------------------- Ollama
 
 type ollamaCompatProvider struct {
-	id      string
-	model   string
-	baseURL string
-	client  *ollama.OllamaClient
-	httpc   *http.Client
+	id        string
+	model     string
+	baseURL   string
+	maxTokens int
+	httpc     *http.Client
 }
 
 func newOllamaCompatProvider(spec *ProviderSpec) *ollamaCompatProvider {
@@ -264,11 +271,11 @@ func newOllamaCompatProvider(spec *ProviderSpec) *ollamaCompatProvider {
 		timeout = time.Duration(spec.Timeout) * time.Second
 	}
 	return &ollamaCompatProvider{
-		id:      spec.ID,
-		model:   spec.DefaultModel,
-		baseURL: strings.TrimRight(spec.BaseURL, "/"),
-		client:  ollama.NewClient(spec.BaseURL),
-		httpc:   &http.Client{Timeout: timeout},
+		id:        spec.ID,
+		model:     spec.DefaultModel,
+		baseURL:   strings.TrimRight(spec.BaseURL, "/"),
+		maxTokens: spec.MaxTokens,
+		httpc:     &http.Client{Timeout: timeout},
 	}
 }
 
@@ -278,15 +285,55 @@ func (p *ollamaCompatProvider) GenerateText(ctx context.Context, prompt string) 
 	return p.GenerateTextWithModel(ctx, p.model, prompt)
 }
 
-func (p *ollamaCompatProvider) GenerateTextWithModel(_ context.Context, model, prompt string) (string, error) {
+// GenerateTextWithModel 直接调原生 /api/generate。
+//
+// 原来走 go-ollama-sdk 的 client.Generate(model, prompt)：那个签名不接 ctx，
+// 请求一旦发出就无法取消，批量任务里遇到慢模型只能干等。改成手写 HTTP 后
+// ctx 与 num_predict（输出上限）都能生效。
+func (p *ollamaCompatProvider) GenerateTextWithModel(ctx context.Context, model, prompt string) (string, error) {
 	if model == "" {
 		model = p.model
 	}
-	out, err := p.client.Generate(model, prompt)
+	body := map[string]any{
+		"model":  model,
+		"prompt": prompt,
+		"stream": false,
+	}
+	if p.maxTokens > 0 {
+		body["options"] = map[string]any{"num_predict": p.maxTokens}
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/api/generate", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := p.httpc.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.id, err)
 	}
-	return out, nil
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", p.id, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("%s: http %d: %s", p.id, resp.StatusCode, truncate(string(data), 300))
+	}
+	var parsed struct {
+		Response string `json:"response"`
+		Error    string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return "", fmt.Errorf("%s: 解析响应失败: %w", p.id, err)
+	}
+	if parsed.Error != "" {
+		return "", fmt.Errorf("%s: %s", p.id, parsed.Error)
+	}
+	return parsed.Response, nil
 }
 
 // ListModels 走 Ollama 原生 GET /api/tags。
@@ -326,10 +373,11 @@ func (p *ollamaCompatProvider) ListModels(ctx context.Context) ([]ModelSpec, err
 // ---------------------------------------------------------------- Gemini
 
 type geminiCompatProvider struct {
-	id     string
-	model  string
-	models []ModelSpec
-	client *genai.Client
+	id        string
+	model     string
+	models    []ModelSpec
+	maxTokens int
+	client    *genai.Client
 }
 
 func newGeminiCompatProvider(ctx context.Context, spec *ProviderSpec) (*geminiCompatProvider, error) {
@@ -351,10 +399,11 @@ func newGeminiCompatProvider(ctx context.Context, spec *ProviderSpec) (*geminiCo
 		return nil, fmt.Errorf("gemini client: %w", err)
 	}
 	return &geminiCompatProvider{
-		id:     spec.ID,
-		model:  spec.DefaultModel,
-		models: spec.Models,
-		client: client,
+		id:        spec.ID,
+		model:     spec.DefaultModel,
+		models:    spec.Models,
+		maxTokens: spec.MaxTokens,
+		client:    client,
 	}, nil
 }
 
@@ -368,8 +417,12 @@ func (p *geminiCompatProvider) GenerateTextWithModel(ctx context.Context, model,
 	if model == "" {
 		model = p.model
 	}
+	var cfg *genai.GenerateContentConfig
+	if p.maxTokens > 0 {
+		cfg = &genai.GenerateContentConfig{MaxOutputTokens: int32(p.maxTokens)}
+	}
 	res, err := p.client.Models.GenerateContent(ctx, model,
-		[]*genai.Content{{Parts: []*genai.Part{{Text: prompt}}}}, nil)
+		[]*genai.Content{{Parts: []*genai.Part{{Text: prompt}}}}, cfg)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", p.id, err)
 	}

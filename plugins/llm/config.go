@@ -3,6 +3,7 @@ package llm
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // LLMConfig LLM插件配置
@@ -23,6 +24,51 @@ type LLMConfig struct {
 	Providers map[string]*ProviderOverride `json:"providers,omitempty"`
 	// Scenes 场景级模型覆盖，key 为场景名（如 comic.tagging）
 	Scenes map[string]*SceneSelection `json:"scenes,omitempty"`
+
+	// ------- 成本护栏。三个值都有内置默认，配 0 表示沿用默认（DailyCallLimit 为 0 表示不限）-------
+
+	// MaxOutputTokens 单次生成的最大输出 token。不设上限时模型可能一口气吐满上下文，
+	// 单次成本不可控；所有业务场景都是"短回答"（几个标签、一句改写），1024 足够。
+	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// CallTimeoutSeconds 单次上游调用超时。调用方没传 deadline 时兜底，
+	// 避免 provider 挂起把批量任务永久卡住。
+	CallTimeoutSeconds int `json:"call_timeout_seconds,omitempty"`
+	// DailyCallLimit 每日上游调用次数上限（按自然日重置）。超了直接拒绝，
+	// 这是"无人值守时把 token 烧光"的最后一道闸。0 表示不限。
+	DailyCallLimit int `json:"daily_call_limit,omitempty"`
+}
+
+// 成本护栏默认值。挑这几个数字的依据：
+//   - 输出 1024：业务场景全是短回答，长回答只可能是模型跑飞；
+//   - 超时 120s：与 provider 的 HTTP 超时一致，够慢模型出结果，又不至于挂死；
+//   - 每日 5000 次：正常使用（打标签、改搜索词）一天几十到几百次，
+//     5000 是数量级上的安全线，真踩到了说明有东西在循环。
+const (
+	DefaultMaxOutputTokens = 1024
+	DefaultCallTimeoutSecs = 120
+	DefaultDailyCallLimit  = 5000
+)
+
+// 生效值：配置里写了就用配置，没写用默认。
+func (c *LLMConfig) EffectiveMaxOutputTokens() int {
+	if c != nil && c.MaxOutputTokens > 0 {
+		return c.MaxOutputTokens
+	}
+	return DefaultMaxOutputTokens
+}
+
+func (c *LLMConfig) EffectiveCallTimeout() time.Duration {
+	if c != nil && c.CallTimeoutSeconds > 0 {
+		return time.Duration(c.CallTimeoutSeconds) * time.Second
+	}
+	return DefaultCallTimeoutSecs * time.Second
+}
+
+func (c *LLMConfig) EffectiveDailyCallLimit() int {
+	if c != nil && c.DailyCallLimit > 0 {
+		return c.DailyCallLimit
+	}
+	return DefaultDailyCallLimit
 }
 
 // TemplateConfig 模板配置

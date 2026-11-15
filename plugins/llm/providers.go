@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +69,12 @@ type ProviderSpec struct {
 	// MaxTokens 单次生成的最大输出 token。0 表示用插件级默认（见 LLMConfig.EffectiveMaxOutputTokens）。
 	// 这里不设上限时模型会一路吐到上下文尽头，单次成本完全不可控。
 	MaxTokens int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	// ExtraBody 原样合并进请求体（OpenAI 兼容上游专有字段的通用出口）。
+	// 典型用法是关掉思考：extra_body: {thinking: {type: disabled}}。
+	// 走请求体改写而不是 SDK 字段，是因为各家关思考的参数名不统一
+	// （thinking / reasoning_effort / enable_thinking / chat_template_kwargs），
+	// SDK 不可能穷举，写死任何一个都会绑死某一家。
+	ExtraBody map[string]interface{} `json:"extra_body,omitempty" yaml:"extra_body,omitempty"`
 	// DefaultModel 该提供商未指定模型时使用
 	DefaultModel string      `json:"default_model,omitempty" yaml:"default_model,omitempty"`
 	Models       []ModelSpec `json:"models,omitempty" yaml:"models,omitempty"`
@@ -201,9 +208,9 @@ func newOpenAICompatProvider(spec *ProviderSpec) *openAICompatProvider {
 	if spec.Timeout > 0 {
 		timeout = time.Duration(spec.Timeout) * time.Second
 	}
-	if len(spec.Headers) > 0 {
+	if len(spec.Headers) > 0 || len(spec.ExtraBody) > 0 {
 		cfg.HTTPClient = &http.Client{
-			Transport: &headerTripper{base: http.DefaultTransport, headers: spec.Headers},
+			Transport: &headerTripper{base: http.DefaultTransport, headers: spec.Headers, extraBody: spec.ExtraBody},
 			Timeout:   timeout,
 		}
 	} else {
@@ -239,7 +246,16 @@ func (p *openAICompatProvider) GenerateTextWithModel(ctx context.Context, model,
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("%s: empty response", p.id)
 	}
-	return resp.Choices[0].Message.Content, nil
+	content := resp.Choices[0].Message.Content
+	// 思考型模型（DeepSeek/GLM/LongCat 等）会先消耗 reasoning token，把 max_tokens 吃光后
+	// 正文是空字符串但 finish_reason 只是 length。如果这里原样返回空串，调用方会以为
+	// "成功但没内容"，最后表现为"AI 没反应"这类查不出来的问题，所以必须报错。
+	if strings.TrimSpace(content) == "" {
+		return "", fmt.Errorf(
+			"%s: 模型返回空内容（finish_reason=%s，completion_tokens=%d）。多半是思考过程用光了 max_tokens，可关掉思考（extra_body）或调大 max_tokens",
+			p.id, resp.Choices[0].FinishReason, resp.Usage.CompletionTokens)
+	}
+	return content, nil
 }
 
 // ListModels 走标准 GET {base_url}/models，兼容所有 OpenAI 兼容上游。
@@ -443,10 +459,12 @@ func (p *geminiCompatProvider) ListModels(_ context.Context) ([]ModelSpec, error
 
 // ---------------------------------------------------------------- 小工具
 
-// headerTripper 给所有出站请求塞自定义头（一些中转站要求额外 header）。
+// headerTripper 给所有出站请求塞自定义头和额外的请求体字段。
+// 两件事放一起是有原因的：都只对特定上游生效、都必须在 SDK 组装完请求之后才动手。
 type headerTripper struct {
-	base    http.RoundTripper
-	headers map[string]string
+	base      http.RoundTripper
+	headers   map[string]string
+	extraBody map[string]interface{}
 }
 
 func (t *headerTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -458,5 +476,51 @@ func (t *headerTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	for k, v := range t.headers {
 		clone.Header.Set(k, v)
 	}
+	if len(t.extraBody) > 0 {
+		if err := injectBodyFields(clone, t.extraBody); err != nil {
+			return nil, err
+		}
+	}
 	return base.RoundTrip(clone)
+}
+
+// injectBodyFields 把 extra 合并进 JSON 请求体。
+// 只补不覆盖：配置里的字段一律让位给 SDK 自己写的（model / messages / max_tokens 这些
+// 由代码负责，配置去改会把语义搞坏）。
+func injectBodyFields(req *http.Request, extra map[string]interface{}) error {
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil
+	}
+	if ct := req.Header.Get("Content-Type"); !strings.Contains(ct, "json") {
+		return nil
+	}
+	raw, err := io.ReadAll(req.Body)
+	if err != nil {
+		return fmt.Errorf("读取请求体失败: %w", err)
+	}
+	_ = req.Body.Close()
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		// 上游收到的不是 JSON，说明这个 provider 不是 OpenAI 兼容体，原样放行
+		req.Body = io.NopCloser(bytes.NewReader(raw))
+		return nil
+	}
+	for k, v := range extra {
+		if _, exists := payload[k]; !exists {
+			payload[k] = v
+		}
+	}
+	patched, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化请求体失败: %w", err)
+	}
+	req.Body = io.NopCloser(bytes.NewReader(patched))
+	req.ContentLength = int64(len(patched))
+	req.Header.Set("Content-Length", strconv.Itoa(len(patched)))
+	// 保留 GetBody：net/http 在重定向/重试时要用它取新的一次性读句柄
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(patched)), nil
+	}
+	return nil
 }

@@ -369,6 +369,9 @@ func LoadConfig(mgr *viper.Viper) *LLMConfig {
 						ov.Headers[k] = asString(hv)
 					}
 				}
+				if b, ok := m["extra_body"].(map[string]any); ok {
+					ov.ExtraBody = b
+				}
 			}
 			cfg.Providers[id] = ov
 		}

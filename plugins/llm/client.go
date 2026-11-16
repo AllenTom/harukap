@@ -42,8 +42,12 @@ const (
 	// SceneMusicArtistScrapeJudge 艺人刮削：从多家候选里判断哪位是这位艺人、
 	// 每个字段该取哪一家。要跨源比对一致性，比纯改写重，档位 balanced。
 	SceneMusicArtistScrapeJudge = "music.artist_scrape_judge"
-	SceneComicTagging           = "comic.tagging"
-	SceneComicSummary           = "comic.summary"
+	// SceneMusicTrackScrapeJudge 曲目刮削：从网易云 / MusicBrainz / LRCLIB 的候选里
+	// 判断哪一条是这首曲目。判断依据是时长、专辑与音轨号，通常比艺人裁决更确定，
+	// 但调用频次高得多（一首歌一次），所以单独成场景便于给它指定更便宜的模型。
+	SceneMusicTrackScrapeJudge = "music.track_scrape_judge"
+	SceneComicTagging          = "comic.tagging"
+	SceneComicSummary          = "comic.summary"
 )
 
 // LLMProvider LLM提供商接口

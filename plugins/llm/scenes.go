@@ -47,6 +47,7 @@ func builtinScenes() []SceneSpec {
 
 		{SceneMusicSearchRewrite, "音乐搜索 · 语义改写", "把查询改写成描述情绪/流派/乐器的英文短语", "music", "fast"},
 		{SceneMusicArtistScrapeJudge, "音乐刮削 · 候选裁决", "从 Deezer/网易云/MusicBrainz 的候选里判断哪位是这位艺人、每个字段取哪家", "music", "balanced"},
+		{SceneMusicTrackScrapeJudge, "音乐刮削 · 曲目候选裁决", "从网易云/MusicBrainz/LRCLIB 的候选里判断哪一条是这首曲目", "music", "balanced"},
 
 		{SceneComicTagging, "漫画打标签", "从文件夹名/标题里抽取画师、系列、题材等标签", "comic", "fast"},
 		{SceneComicSummary, "漫画标题翻译", "把日文/英文标题翻译成中文", "comic", "balanced"},

@@ -39,8 +39,11 @@ const (
 	ScenePhotoSearchRewriteSig = "photo.search_rewrite_siglip"
 	ScenePhotoCaption          = "photo.caption"
 	SceneMusicSearchRewrite    = "music.search_rewrite"
-	SceneComicTagging          = "comic.tagging"
-	SceneComicSummary          = "comic.summary"
+	// SceneMusicArtistScrapeJudge 艺人刮削：从多家候选里判断哪位是这位艺人、
+	// 每个字段该取哪一家。要跨源比对一致性，比纯改写重，档位 balanced。
+	SceneMusicArtistScrapeJudge = "music.artist_scrape_judge"
+	SceneComicTagging           = "comic.tagging"
+	SceneComicSummary           = "comic.summary"
 )
 
 // LLMProvider LLM提供商接口
